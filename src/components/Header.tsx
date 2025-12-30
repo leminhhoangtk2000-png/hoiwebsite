@@ -1,0 +1,114 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import Image from 'next/image'
+import { ShoppingBag } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { supabase } from '@/lib/supabase'
+import { useCartStore } from '@/lib/store'
+
+interface Category {
+  id: string
+  name: string
+  slug: string
+}
+
+export default function Header() {
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [categories, setCategories] = useState<Category[]>([])
+  const cartItems = useCartStore((state) => state.items)
+  const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0)
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        // Fetch logo
+        const { data: logoData } = await supabase
+          .from('site_settings')
+          .select('logo_url')
+          .maybeSingle()
+        
+        if (logoData?.logo_url) {
+          setLogoUrl(logoData.logo_url)
+        }
+
+        // Fetch active categories
+        const { data: categoriesData, error } = await supabase
+          .from('categories')
+          .select('id, name, slug')
+          .order('name', { ascending: true })
+
+        if (error) throw error
+        setCategories(categoriesData || [])
+      } catch (error) {
+        console.error('Error fetching header data:', error)
+      }
+    }
+    fetchData()
+  }, [])
+
+  function handleCategoryClick(e: React.MouseEvent<HTMLAnchorElement>, slug: string) {
+    e.preventDefault()
+    const element = document.getElementById(slug)
+    if (element) {
+      const headerOffset = 80 // Account for sticky header
+      const elementPosition = element.getBoundingClientRect().top
+      const offsetPosition = elementPosition + window.pageYOffset - headerOffset
+
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: 'smooth'
+      })
+    }
+  }
+
+  return (
+    <header className="sticky top-0 z-50 w-full border-b bg-white">
+      <div className="container mx-auto px-4">
+        <div className="flex h-16 items-center justify-between">
+          {/* Logo - Left */}
+          <Link href="/" className="flex items-center hover:opacity-80 transition-opacity">
+            {logoUrl ? (
+              <Image
+                src={logoUrl}
+                alt="Logo"
+                width={120}
+                height={40}
+                className="h-10 w-auto object-contain"
+              />
+            ) : (
+              <span className="text-xl font-bold text-[#333333]">UNIQLO CLONE</span>
+            )}
+          </Link>
+
+          {/* Navigation - Center */}
+          <nav className="hidden md:flex items-center gap-8">
+            {categories.map((category) => (
+              <a
+                key={category.id}
+                href={`#${category.slug}`}
+                onClick={(e) => handleCategoryClick(e, category.slug)}
+                className="text-sm font-medium text-[#333333] hover:opacity-70 transition-opacity"
+              >
+                {category.name.toUpperCase()}
+              </a>
+            ))}
+          </nav>
+
+          {/* Cart Icon - Right */}
+          <Link href="/cart" className="relative">
+            <Button variant="ghost" size="icon" className="hover:bg-gray-100">
+              <ShoppingBag className="h-5 w-5 text-[#333333]" />
+            </Button>
+            {itemCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-[#333333] text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                {itemCount > 9 ? '9+' : itemCount}
+              </span>
+            )}
+          </Link>
+        </div>
+      </div>
+    </header>
+  )
+}
