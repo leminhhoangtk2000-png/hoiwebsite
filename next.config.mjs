@@ -4,7 +4,7 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'YOUR_SUPABASE_PROJECT_ID.supabase.co',
+        hostname: 'abcdefgh.supabase.co', // Thay bằng ID thật của bạn
       },
     ],
   },
