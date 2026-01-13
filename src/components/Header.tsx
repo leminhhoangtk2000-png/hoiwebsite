@@ -1,11 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ShoppingBag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { supabase } from '@/lib/supabase'
 import { useCartStore } from '@/lib/store'
 
 interface Category {
@@ -14,39 +12,9 @@ interface Category {
   slug: string
 }
 
-export default function Header() {
-  const [logoUrl, setLogoUrl] = useState<string | null>(null)
-  const [categories, setCategories] = useState<Category[]>([])
+export default function Header({ logoUrl, categories = [] }: { logoUrl: string | null, categories: Category[] }) {
   const cartItems = useCartStore((state) => state.items)
   const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0)
-
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        // Fetch logo
-        const { data: logoData } = await supabase
-          .from('site_settings')
-          .select('logo_url')
-          .maybeSingle()
-        
-        if (logoData?.logo_url) {
-          setLogoUrl(logoData.logo_url)
-        }
-
-        // Fetch active categories
-        const { data: categoriesData, error } = await supabase
-          .from('categories')
-          .select('id, name, slug')
-          .order('name', { ascending: true })
-
-        if (error) throw error
-        setCategories(categoriesData || [])
-      } catch (error) {
-        console.error('Error fetching header data:', error)
-      }
-    }
-    fetchData()
-  }, [])
 
   function handleCategoryClick(e: React.MouseEvent<HTMLAnchorElement>, slug: string) {
     e.preventDefault()
@@ -88,7 +56,7 @@ export default function Header() {
               <a
                 key={category.id}
                 href={`#${category.slug}`}
-                onClick={(e) => handleCategoryClick(e, category.slug)}
+                onClick={(e) => handleCategory-Click(e, category.slug)}
                 className="text-sm font-medium text-[#333333] hover:opacity-70 transition-opacity"
               >
                 {category.name.toUpperCase()}

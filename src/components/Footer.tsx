@@ -1,48 +1,29 @@
-'use client'
+export const dynamic = 'force-dynamic';
 
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import * as LucideIcons from 'lucide-react'
+import { supabase } from '@/lib/supabase';
+import Image from 'next/image'; // Import Next.js Image component
 
 interface SocialChannel {
-  id: string
-  name: string
-  icon_code: string
-  link: string
-  is_active: boolean
+  id: string;
+  name: string;
+  icon_url: string; // Expecting a URL for the icon
+  link: string;
+  is_active: boolean;
 }
 
-export default function Footer() {
-  const [socialChannels, setSocialChannels] = useState<SocialChannel[]>([])
+export default async function Footer() {
+  let socialChannels: SocialChannel[] = [];
+  try {
+    const { data, error } = await supabase
+      .from('social_channels')
+      .select('*') // Selects all columns, including icon_url
+      .eq('is_active', true)
+      .order('name', { ascending: true });
 
-  useEffect(() => {
-    async function fetchSocialChannels() {
-      try {
-        const { data, error } = await supabase
-          .from('social_channels')
-          .select('*')
-          .eq('is_active', true)
-          .order('name', { ascending: true })
-
-        if (error) throw error
-        setSocialChannels(data || [])
-      } catch (error) {
-        console.error('Error fetching social channels:', error)
-      }
-    }
-    fetchSocialChannels()
-  }, [])
-
-  function getIconComponent(iconCode: string) {
-    try {
-      const IconComponent = (LucideIcons as any)[iconCode]
-      if (IconComponent && typeof IconComponent === 'function') {
-        return IconComponent
-      }
-    } catch (error) {
-      console.warn(`Icon "${iconCode}" not found, using Link icon`)
-    }
-    return LucideIcons.Link
+    if (error) throw error;
+    socialChannels = data || [];
+  } catch (error) {
+    console.error('Error fetching social channels for Footer:', error);
   }
 
   return (
@@ -55,7 +36,15 @@ export default function Footer() {
           <div className="flex items-center gap-6">
             {socialChannels.length > 0 ? (
               socialChannels.map((channel) => {
-                const IconComponent = getIconComponent(channel.icon_code)
+                // For debugging as requested
+                console.log("DEBUG social channel item:", channel);
+
+                // Ensure icon_url exists and is a valid string before rendering
+                if (!channel.icon_url || typeof channel.icon_url !== 'string') {
+                  // Optionally render a fallback or nothing
+                  return null;
+                }
+
                 return (
                   <a
                     key={channel.id}
@@ -65,19 +54,26 @@ export default function Footer() {
                     className="text-[#333333] hover:opacity-70 transition-opacity"
                     aria-label={channel.name}
                   >
-                    <IconComponent className="h-6 w-6" />
+                    <Image
+                      src={channel.icon_url}
+                      alt={`${channel.name} icon`}
+                      width={24}
+                      height={24}
+                      className="h-6 w-6" // Maintain consistent size
+                      unoptimized // Add if icons are SVGs or from external non-standard domains
+                    />
                   </a>
-                )
+                );
               })
             ) : (
               <p className="text-sm text-gray-500">No social channels available</p>
             )}
           </div>
           <p className="text-xs text-gray-500 mt-4">
-            © {new Date().getFullYear()} UNIQLO CLONE. All rights reserved.
+            © {new Date().getFullYear()} Your Company Name. All rights reserved.
           </p>
         </div>
       </div>
     </footer>
-  )
+  );
 }

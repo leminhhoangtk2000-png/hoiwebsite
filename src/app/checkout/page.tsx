@@ -146,8 +146,9 @@ export default function CheckoutPage() {
       // Clear cart
       clearCart()
 
-      // Redirect to thank you page
-      router.push(`/checkout/thank-you?orderId=${order.id}`)
+      // Show success toast and redirect to home
+      toast.success("Thank you!!! Your things is on the way.")
+      router.push('/')
     } catch (error: any) {
       console.error('Error creating order:', error)
       toast.error(error.message || 'Failed to create order. Please try again.')

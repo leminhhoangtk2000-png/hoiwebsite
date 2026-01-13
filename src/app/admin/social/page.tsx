@@ -1,40 +1,29 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
-import { Trash2, Plus, Edit } from 'lucide-react'
+import { Trash2, Plus, Edit, Link as LinkIcon } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 
 interface SocialChannel {
   id: string
   name: string
-  icon_code: string
+  icon_code: string | null // Now optional
+  icon_url: string | null  // New field
   link: string
   is_active: boolean
   created_at: string
 }
 
-const availableIcons = [
-  'Facebook',
-  'Instagram',
-  'Twitter',
-  'Linkedin',
-  'Youtube',
-  'TikTok',
-  'Pinterest',
-  'Snapchat',
-  'Github',
-  'Mail',
-  'Phone'
-]
+const BUCKET_NAME = 'social-icons';
 
 export default function AdminSocialPage() {
   const [channels, setChannels] = useState<SocialChannel[]>([])
@@ -43,16 +32,18 @@ export default function AdminSocialPage() {
   const [editingChannel, setEditingChannel] = useState<SocialChannel | null>(null)
   const [formData, setFormData] = useState({
     name: '',
-    icon_code: 'Facebook',
     link: '',
     is_active: true
   })
+  const [iconFile, setIconFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     fetchChannels()
   }, [])
 
   async function fetchChannels() {
+    setLoading(true);
     try {
       const { data, error } = await supabase
         .from('social_channels')
@@ -69,24 +60,33 @@ export default function AdminSocialPage() {
     }
   }
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      setIconFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+    }
+  }
+
   function openDialog(channel?: SocialChannel) {
     if (channel) {
       setEditingChannel(channel)
       setFormData({
         name: channel.name,
-        icon_code: channel.icon_code,
         link: channel.link,
         is_active: channel.is_active
       })
+      setPreviewUrl(channel.icon_url);
     } else {
       setEditingChannel(null)
       setFormData({
         name: '',
-        icon_code: 'Facebook',
         link: '',
         is_active: true
       })
+      setPreviewUrl(null);
     }
+    setIconFile(null);
     setDialogOpen(true)
   }
 
@@ -94,21 +94,50 @@ export default function AdminSocialPage() {
     e.preventDefault()
     
     if (!formData.name.trim() || !formData.link.trim()) {
-      toast.error('Please fill in all required fields')
+      toast.error('Please fill in Name and Link URL fields')
       return
     }
 
     try {
+      let icon_url = editingChannel?.icon_url || null;
+
+      // Handle file upload
+      if (iconFile) {
+        // Remove old file if updating
+        if (editingChannel?.icon_url) {
+          const oldFileName = editingChannel.icon_url.split('/').pop();
+          if (oldFileName) {
+            await supabase.storage.from(BUCKET_NAME).remove([oldFileName]);
+          }
+        }
+        
+        const fileName = `${Date.now()}-${iconFile.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from(BUCKET_NAME)
+          .upload(fileName, iconFile);
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage
+          .from(BUCKET_NAME)
+          .getPublicUrl(fileName);
+        
+        icon_url = publicUrlData.publicUrl;
+      }
+
+      const channelData = {
+        name: formData.name.trim(),
+        link: formData.link.trim(),
+        is_active: formData.is_active,
+        icon_url: icon_url,
+        icon_code: null // Deprecate icon_code
+      };
+
       if (editingChannel) {
         // Update existing
         const { error } = await supabase
           .from('social_channels')
-          .update({
-            name: formData.name.trim(),
-            icon_code: formData.icon_code,
-            link: formData.link.trim(),
-            is_active: formData.is_active
-          })
+          .update(channelData)
           .eq('id', editingChannel.id)
 
         if (error) throw error
@@ -117,12 +146,7 @@ export default function AdminSocialPage() {
         // Create new
         const { error } = await supabase
           .from('social_channels')
-          .insert({
-            name: formData.name.trim(),
-            icon_code: formData.icon_code,
-            link: formData.link.trim(),
-            is_active: formData.is_active
-          })
+          .insert(channelData)
 
         if (error) throw error
         toast.success('Social channel added successfully!')
@@ -142,27 +166,37 @@ export default function AdminSocialPage() {
         .from('social_channels')
         .update({ is_active: !currentStatus })
         .eq('id', id)
-
       if (error) throw error
-
       toast.success(`Social channel ${!currentStatus ? 'activated' : 'deactivated'}`)
       fetchChannels()
     } catch (error: any) {
-      console.error('Error updating social channel:', error)
       toast.error(error.message || 'Failed to update social channel')
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Are you sure you want to delete this social channel?')) {
+  async function handleDelete(channel: SocialChannel) {
+    if (!confirm('Are you sure you want to delete this social channel? This will also delete its icon.')) {
       return
     }
 
     try {
+      // Delete icon from storage first
+      if (channel.icon_url) {
+        const fileName = channel.icon_url.split('/').pop();
+        if (fileName) {
+          const { error: storageError } = await supabase.storage.from(BUCKET_NAME).remove([fileName]);
+          if (storageError) {
+             console.error('Could not delete icon from storage:', storageError.message);
+             toast.error('Failed to delete icon from storage, but proceeding to delete channel data.');
+          }
+        }
+      }
+
+      // Delete from database
       const { error } = await supabase
         .from('social_channels')
         .delete()
-        .eq('id', id)
+        .eq('id', channel.id)
 
       if (error) throw error
 
@@ -174,42 +208,24 @@ export default function AdminSocialPage() {
     }
   }
 
-  function getIconComponent(iconCode: string) {
+  // Fallback for old data that might still use lucide icons
+  function getIconComponent(iconCode: string | null) {
+    if (!iconCode) return LinkIcon;
     try {
       const IconComponent = (LucideIcons as any)[iconCode]
-      if (IconComponent && typeof IconComponent === 'function') {
-        return IconComponent
-      }
+      return IconComponent && typeof IconComponent === 'function' ? IconComponent : LinkIcon;
     } catch (error) {
-      console.warn(`Icon "${iconCode}" not found, using Link icon`)
+      return LinkIcon;
     }
-    return LucideIcons.Link
   }
 
-  if (loading) {
-    return (
-      <div className="container mx-auto px-4 py-16">
-        <div className="text-center">Loading...</div>
-      </div>
-    )
-  }
+  if (loading) return <div className="container mx-auto p-8 text-center">Loading social channels...</div>
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold text-[#333333]">Social Media Management</h1>
-        <Dialog open={dialogOpen} onOpenChange={(open) => {
-          setDialogOpen(open)
-          if (!open) {
-            setEditingChannel(null)
-            setFormData({
-              name: '',
-              icon_code: 'Facebook',
-              link: '',
-              is_active: true
-            })
-          }
-        }}>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button 
               className="bg-[#333333] text-white hover:bg-[#555555]"
@@ -236,31 +252,24 @@ export default function AdminSocialPage() {
                   required
                 />
               </div>
-              <div>
-                <Label htmlFor="icon_code">Icon *</Label>
-                <Select
-                  value={formData.icon_code}
-                  onValueChange={(value) => setFormData({ ...formData, icon_code: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableIcons.map((icon) => {
-                      const IconComponent = getIconComponent(icon)
-                      return (
-                        <SelectItem key={icon} value={icon}>
-                          <div className="flex items-center gap-2">
-                            <IconComponent className="h-4 w-4" />
-                            <span>{icon}</span>
-                          </div>
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-gray-500 mt-1">Select the Lucide icon to display</p>
+
+               <div>
+                <Label htmlFor="icon">Icon Image</Label>
+                <Input
+                  id="icon"
+                  type="file"
+                  accept="image/png, image/jpeg, image/svg+xml, image/webp"
+                  onChange={handleFileChange}
+                  className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
+                />
+                {previewUrl && (
+                  <div className="mt-4">
+                     <Image src={previewUrl} alt="Icon preview" width={40} height={40} className="rounded-md object-cover" />
+                  </div>
+                )}
+                <p className="text-xs text-gray-500 mt-1">Upload a PNG, JPG, or SVG. Replaces existing icon.</p>
               </div>
+
               <div>
                 <Label htmlFor="link">Link URL *</Label>
                 <Input
@@ -297,44 +306,43 @@ export default function AdminSocialPage() {
         </Dialog>
       </div>
 
-      {channels.length === 0 ? (
-        <Card className="p-8 text-center">
-          <p className="text-gray-600">No social channels found.</p>
-          <p className="text-sm text-gray-500 mt-2">Click "Add Social Channel" to get started.</p>
-        </Card>
-      ) : (
-        <Card>
-          <Table>
-            <TableHeader>
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Icon</TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead>Link</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {channels.length === 0 ? (
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Icon</TableHead>
-                <TableHead>Link</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableCell colSpan={5} className="h-24 text-center">
+                  No social channels found.
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {channels.map((channel) => {
-                const IconComponent = getIconComponent(channel.icon_code)
-                return (
-                  <TableRow key={channel.id}>
-                    <TableCell className="font-medium">{channel.name}</TableCell>
-                    <TableCell>
-                      <IconComponent className="h-5 w-5" />
-                    </TableCell>
-                    <TableCell className="max-w-xs truncate">
-                      <a 
-                        href={channel.link} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline text-sm"
-                      >
-                        {channel.link}
-                      </a>
-                    </TableCell>
-                    <TableCell>
-                      <Button
+            ) : channels.map((channel) => {
+              const IconComponent = getIconComponent(channel.icon_code);
+              return (
+                <TableRow key={channel.id}>
+                  <TableCell>
+                    {channel.icon_url ? (
+                      <Image src={channel.icon_url} alt={channel.name} width={24} height={24} className="rounded-sm"/>
+                    ) : (
+                      <IconComponent className="h-6 w-6" />
+                    )}
+                  </TableCell>
+                  <TableCell className="font-medium">{channel.name}</TableCell>
+                  <TableCell className="max-w-xs truncate">
+                    <a href={channel.link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-sm">
+                      {channel.link}
+                    </a>
+                  </TableCell>
+                  <TableCell>
+                     <Button
                         variant={channel.is_active ? 'default' : 'outline'}
                         size="sm"
                         onClick={() => handleToggleActive(channel.id, channel.is_active)}
@@ -342,34 +350,26 @@ export default function AdminSocialPage() {
                       >
                         {channel.is_active ? 'Active' : 'Inactive'}
                       </Button>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openDialog(channel)}
-                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(channel.id)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </Card>
-      )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button variant="ghost" size="icon" onClick={() => openDialog(channel)}>
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleDelete(channel)} className="text-red-600 hover:text-red-700">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </Card>
+      <div className="text-sm text-gray-500 mt-4">
+        <strong>Note:</strong> You might need to create a new Supabase Storage bucket named "social-icons" with public access for the icons to work correctly.
+      </div>
     </div>
   )
 }
