@@ -82,6 +82,10 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+import GoogleAnalytics from "@/components/GoogleAnalytics";
+
+// ... existing imports
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -103,6 +107,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
+      <GoogleAnalytics GA_MEASUREMENT_ID="G-XRES7RKJ18" />
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col min-h-screen`}
         suppressHydrationWarning={true}
