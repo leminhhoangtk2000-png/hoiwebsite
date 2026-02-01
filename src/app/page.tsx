@@ -77,6 +77,38 @@ async function getPageData() {
   // For each section, fetch the 50 latest products matching its category slug
   const sectionsWithProducts: HomeSectionWithProducts[] = await Promise.all(
     homeSections.map(async (section) => {
+      // 1. Try to fetch manually pinned products for this section
+      const { data: pinnedProducts, error: pinnedError } = await supabase
+        .from('home_section_products')
+        .select(`
+          display_order,
+          products (
+            id, 
+            name, 
+            price_usd, 
+            price_vnd, 
+            discount_type,
+            discount_value,
+            product_images (image_url, display_order)
+          )
+        `)
+        .eq('section_id', section.id)
+        .order('display_order', { ascending: true });
+
+      if (!pinnedError && pinnedProducts && pinnedProducts.length > 0) {
+        // If we have pinned products, use them
+        const products = pinnedProducts
+          .map((item: any) => item.products)
+          .filter((p: any) => p !== null) // Filter out any nulls if join failed
+          .map((p: any) => ({
+            ...p,
+            product_images: (p.product_images || []).sort((a: any, b: any) => a.display_order - b.display_order)
+          }));
+
+        return { ...section, products };
+      }
+
+      // 2. Fallback: Fetch by Category Slug (Original Logic)
       let query = supabase
         .from('products')
         .select(`

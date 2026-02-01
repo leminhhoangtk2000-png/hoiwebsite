@@ -41,8 +41,20 @@ interface CarouselSlide {
   image_path: string
   cta_link: string | null
   cta_text: string | null
-  display_order: number
-  is_active: boolean
+  display_order: number;
+  is_active: boolean;
+}
+
+// Added Type for Joined Product
+interface SectionProduct {
+  id: string; // id of the join record
+  product_id: string;
+  display_order: number;
+  product_details: {
+    name: string;
+    price_usd: number;
+    image_url: string | null;
+  }
 }
 const BUCKET_NAME = 'hero-banners'
 const LOGO_BUCKET_NAME = 'logos'
@@ -50,16 +62,24 @@ const LOGO_BUCKET_NAME = 'logos'
 
 // #region --- Child Components ---
 
-function LogoUploader({ initialLogoPath, onUploadSuccess }: { initialLogoPath: string | null, onUploadSuccess: (newPath: string) => void }) {
+interface ImageUploaderProps {
+  label: string;
+  bucketName: string;
+  initialPath: string | null;
+  onUploadSuccess: (newPath: string) => void;
+  recommendedSize?: string;
+}
+
+function SingleImageUploader({ label, bucketName, initialPath, onUploadSuccess, recommendedSize = "240x80px" }: ImageUploaderProps) {
   const [uploading, setUploading] = useState(false);
-  const [logoPath, setLogoPath] = useState<string | null>(initialLogoPath);
+  const [imagePath, setImagePath] = useState<string | null>(initialPath);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setLogoPath(initialLogoPath);
-  }, [initialLogoPath]);
+    setImagePath(initialPath);
+  }, [initialPath]);
 
-  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -67,31 +87,22 @@ function LogoUploader({ initialLogoPath, onUploadSuccess }: { initialLogoPath: s
     try {
       const fileName = `${Date.now()}-${file.name}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from(LOGO_BUCKET_NAME)
+        .from(bucketName)
         .upload(fileName, file);
 
       if (uploadError) throw uploadError;
 
-      const { data: publicUrlData } = supabase.storage.from(LOGO_BUCKET_NAME).getPublicUrl(uploadData.path);
-
+      const { data: publicUrlData } = supabase.storage.from(bucketName).getPublicUrl(uploadData.path);
       onUploadSuccess(publicUrlData.publicUrl);
 
-      // If a logo already exists, remove the old one first.
-      if (logoPath && logoPath.startsWith('http')) {
-        const oldLogoName = logoPath.split('/').pop();
-        if (oldLogoName) {
-          const { error: deleteError } = await supabase.storage.from(LOGO_BUCKET_NAME).remove([oldLogoName]);
-          if (deleteError) {
-            console.warn("Could not delete old logo:", deleteError.message);
-            toast.warning("Failed to remove the old logo file.");
-          }
-        }
-      }
+      // If an image already exists, remove the old one first? 
+      // Note: We might want to keep history or clean up. For now let's just upload.
+      // Cleaning up old files based on URL is tricky if we don't store the path perfectly.
+      // Let's assume the user manages cleanup or we implement a gc later.
 
-      toast.success("Logo uploaded successfully!");
-
+      toast.success(`${label} uploaded successfully!`);
     } catch (error: any) {
-      toast.error(error.message || "Failed to upload logo.");
+      toast.error(error.message || `Failed to upload ${label}.`);
     } finally {
       setUploading(false);
     }
@@ -101,31 +112,30 @@ function LogoUploader({ initialLogoPath, onUploadSuccess }: { initialLogoPath: s
     fileInputRef.current?.click();
   }
 
-  let displayUrl = logoPath;
-
+  let displayUrl = imagePath;
 
   return (
     <div className="space-y-4">
-      <Label>Logo</Label>
+      <Label>{label}</Label>
       <div className="flex items-center gap-6">
-        <div className="w-48 h-20 flex items-center justify-center border rounded-lg bg-gray-50 overflow-hidden">
+        <div className="w-48 h-20 flex items-center justify-center border rounded-lg bg-gray-50 overflow-hidden relative">
           {displayUrl ? (
-            <Image src={displayUrl} alt="Current Logo" width={160} height={80} className="object-contain" />
+            <Image src={displayUrl} alt={label} fill className="object-contain p-2" />
           ) : (
-            <span className="text-sm text-gray-500">No Logo</span>
+            <span className="text-sm text-gray-500">No Image</span>
           )}
         </div>
         <div className="space-y-2">
           <Button onClick={triggerFileInput} disabled={uploading}>
             {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
-            {uploading ? 'Uploading...' : 'Upload New Logo'}
+            {uploading ? 'Uploading...' : `Upload New ${label}`}
           </Button>
-          <p className="text-xs text-gray-500">Recommended size: 240x80px</p>
+          <p className="text-xs text-gray-500">Recommended size: {recommendedSize}</p>
           <Input
             ref={fileInputRef}
             type="file"
             className="hidden"
-            onChange={handleLogoUpload}
+            onChange={handleUpload}
             accept="image/png, image/jpeg, image/svg+xml, image/webp"
             disabled={uploading}
           />
@@ -417,6 +427,8 @@ function HomeSectionsManager({ categories }: { categories: Category[] }) {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingSection, setEditingSection] = useState<HomeSection | null>(null)
+  const [productsDialogOpen, setProductsDialogOpen] = useState(false);
+  const [selectedSectionForProducts, setSelectedSectionForProducts] = useState<HomeSection | null>(null);
 
   useEffect(() => {
     fetchSections()
@@ -441,10 +453,12 @@ function HomeSectionsManager({ categories }: { categories: Category[] }) {
   const handleSaveSection = async (formData: Omit<HomeSection, 'id' | 'is_active'>, is_active: boolean) => {
     try {
       if (editingSection) {
+        // Update
         const { error } = await supabase.from('home_sections').update({ ...formData, is_active }).eq('id', editingSection.id)
         if (error) throw error
         toast.success('Section updated!')
       } else {
+        // Create
         const { error } = await supabase.from('home_sections').insert({ ...formData, is_active })
         if (error) throw error
         toast.success('Section created!')
@@ -524,6 +538,11 @@ function HomeSectionsManager({ categories }: { categories: Category[] }) {
           categories={categories}
           onSave={handleSaveSection}
         />
+        <SectionProductsDialog
+          section={selectedSectionForProducts}
+          open={productsDialogOpen}
+          onOpenChange={setProductsDialogOpen}
+        />
       </CardHeader>
       <CardContent>
         {loading ? <p>Loading sections...</p> : (
@@ -560,6 +579,9 @@ function HomeSectionsManager({ categories }: { categories: Category[] }) {
                       </Button>
                       <Button variant="ghost" size="icon" disabled={index === sections.length - 1} onClick={() => handleMoveSection(index, 'down')}>
                         <ArrowDown className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => { setSelectedSectionForProducts(section); setProductsDialogOpen(true); }}>
+                        Manage Products
                       </Button>
                       <Button variant="ghost" size="icon" onClick={() => { setEditingSection(section); setDialogOpen(true); }}>
                         <Edit className="h-4 w-4" />
@@ -647,6 +669,342 @@ function SectionDialog({ dialogOpen, setDialogOpen, editingSection, setEditingSe
   );
 }
 
+function SectionProductsDialog({ section, open, onOpenChange }: { section: HomeSection | null, open: boolean, onOpenChange: (open: boolean) => void }) {
+  const [products, setProducts] = useState<SectionProduct[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (section && open) {
+      fetchSectionProducts();
+    }
+  }, [section, open]);
+
+  async function fetchSectionProducts() {
+    if (!section) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('home_section_products')
+        .select(`
+          id,
+          product_id,
+          display_order,
+          products ( id, name, price_usd, product_images ( image_url ) )
+        `)
+        .eq('section_id', section.id)
+        .order('display_order', { ascending: true });
+
+      if (error) throw error;
+
+      // Ensure data is array
+      const currentItems = data || [];
+
+      // If empty, try to seed from category
+      if (currentItems.length === 0 && section.category_slug) {
+        // Auto-seed
+        await seedFromCategory(section);
+        return; // fetchSectionProducts will be called again by seedFromCategory or we accept the reload
+      }
+
+      // Map to cleaner structure
+      const mapped = currentItems.map((item: any) => ({
+        id: item.id,
+        product_id: item.product_id,
+        display_order: item.display_order,
+        product_details: {
+          name: item.products?.name,
+          price_usd: item.products?.price_usd,
+          image_url: item.products?.product_images?.[0]?.image_url || null
+        }
+      }));
+      setProducts(mapped);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to load section products");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function seedFromCategory(sec: HomeSection) {
+    console.log("Starting seedFromCategory for section:", sec);
+    try {
+      let prodData: any[] = [];
+
+      if (!sec.category_slug) {
+        console.error("Seeding aborted: Missing category_slug in section", sec);
+        toast.error("Cannot seed: Section has no category linked.");
+        return;
+      }
+
+      if (sec.category_slug === 'all') {
+        console.log("Seeding from 'all'...");
+        const { data, error } = await supabase
+          .from('products')
+          .select('id')
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (error) {
+          console.error("Error fetching 'all' products:", error);
+          toast.error("Failed to fetch products: " + error.message);
+          return;
+        }
+        prodData = data || [];
+      } else {
+        console.log(`Seeding from category slug: ${sec.category_slug}`);
+        // 1. Get Category ID
+        const { data: catData, error: catError } = await supabase
+          .from('categories')
+          .select('id')
+          .eq('slug', sec.category_slug)
+          .single();
+
+        if (catError) {
+          console.error("Category fetch error:", catError);
+          toast.error("Failed to find category: " + catError.message);
+          return;
+        }
+        if (!catData) {
+          console.warn("Category data is null for slug:", sec.category_slug);
+          toast.error("Category not found.");
+          return;
+        }
+
+        console.log("Found Category ID:", catData.id);
+
+        // 1b. Get Subcategories
+        const { data: subCats, error: subError } = await supabase.from('categories').select('id').eq('parent_id', catData.id);
+        if (subError) console.error("Subcategories fetch error (non-fatal):", subError);
+
+        const categoryIds = [catData.id, ...(subCats?.map(c => c.id) || [])];
+        console.log("Searching in Category IDs:", categoryIds);
+
+        // 2. Get Products in Category (Limit 50)
+        const { data, error } = await supabase
+          .from('products')
+          .select('id')
+          .in('category_id', categoryIds)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (error) {
+          console.error("Error fetching category products:", error);
+          toast.error("Failed to fetch products: " + error.message);
+          return;
+        }
+        prodData = data || [];
+      }
+
+      console.log(`Found ${prodData.length} products to seed.`);
+
+      if (prodData.length === 0) {
+        toast.info("No products found in this category to seed.");
+        return;
+      }
+
+      // 2b Check for existing products in this section to avoid duplicates
+      const { data: existingMap, error: existError } = await supabase
+        .from('home_section_products')
+        .select('product_id')
+        .eq('section_id', sec.id);
+
+      if (existError) {
+        console.error("Error checking existing:", existError);
+        // Don't return, try to proceed or just log warning
+      }
+
+      const existingProductIds = new Set((existingMap || []).map((i: any) => i.product_id));
+
+      // Filter prodData
+      const newProducts = prodData.filter(p => !existingProductIds.has(p.id));
+
+      if (newProducts.length === 0) {
+        toast.info("All category products are already in this section.");
+        return;
+      }
+
+      // 3. Bulk Insert
+      const rows = newProducts.map((p, index) => ({
+        section_id: sec.id,
+        product_id: p.id,
+        display_order: index
+      }));
+
+      // console.log(`Inserting ${rows.length} new rows:`, rows);
+
+      const { error: insertError } = await supabase
+        .from('home_section_products')
+        .insert(rows);
+
+      if (insertError) {
+        console.error("Insert error RAW:", insertError);
+        toast.error(`Failed to insert products: ${insertError.message || 'Unknown error'}`);
+        return;
+      }
+
+      toast.success(`Auto-added ${rows.length} new products.`);
+
+      // Reload
+      fetchSectionProducts();
+
+    } catch (error: any) {
+      console.error("Unknown Seeding Error:", error);
+      toast.error("An unexpected error occurred.");
+    }
+  }
+
+  async function handleSearch(term: string) {
+    setSearchTerm(term);
+    if (term.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    try {
+      const { data } = await supabase
+        .from('products')
+        .select('id, name, price_usd')
+        .ilike('name', `%${term}%`)
+        .limit(5);
+
+      // Filter out products already in the section
+      const existingIds = new Set(products.map(p => p.product_id));
+      setSearchResults((data || []).filter(p => !existingIds.has(p.id)));
+
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  async function addProduct(product: any) {
+    if (!section) return;
+    try {
+      const maxOrder = products.length > 0 ? Math.max(...products.map(p => p.display_order)) : -1;
+      const { error } = await supabase.from('home_section_products').insert({
+        section_id: section.id,
+        product_id: product.id,
+        display_order: maxOrder + 1
+      });
+      if (error) throw error;
+
+      toast.success("Product added");
+      setSearchTerm("");
+      setSearchResults([]);
+      fetchSectionProducts();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add product");
+    }
+  }
+
+  async function removeProduct(id: string) {
+    try {
+      const { error } = await supabase.from('home_section_products').delete().eq('id', id);
+      if (error) throw error;
+      toast.success("Product removed");
+      setProducts(products.filter(p => p.id !== id));
+    } catch (error) {
+      toast.error("Failed to remove product");
+    }
+  }
+
+  async function moveProduct(index: number, direction: 'up' | 'down') {
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === products.length - 1) return;
+
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    const currentItem = products[index];
+    const targetItem = products[targetIndex];
+
+    try {
+      // Swap local state first
+      const newProducts = [...products];
+      [newProducts[index], newProducts[targetIndex]] = [newProducts[targetIndex], newProducts[index]];
+      setProducts(newProducts);
+
+      // Update DB
+      await Promise.all([
+        supabase.from('home_section_products').update({ display_order: targetItem.display_order }).eq('id', currentItem.id),
+        supabase.from('home_section_products').update({ display_order: currentItem.display_order }).eq('id', targetItem.id)
+      ]);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to reorder");
+      fetchSectionProducts(); // Revert on error
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Manage Products for "{section?.title}"</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-6">
+          {/* Search & Add */}
+          <div className="relative">
+            <Label>Add Product</Label>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Search product by name..."
+                value={searchTerm}
+                onChange={e => handleSearch(e.target.value)}
+              />
+            </div>
+            {searchResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 bg-white border rounded shadow-lg z-50 mt-1 max-h-48 overflow-y-auto">
+                {searchResults.map(p => (
+                  <div
+                    key={p.id}
+                    className="p-2 hover:bg-gray-100 cursor-pointer flex justify-between items-center"
+                    onClick={() => addProduct(p)}
+                  >
+                    <span>{p.name}</span>
+                    <span className="text-gray-500 text-sm">${p.price_usd}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Product List */}
+          <div>
+            <Label className="mb-2 block">Current Products ({products.length})</Label>
+            {loading ? <div className="text-center py-4">Loading...</div> : (
+              <div className="space-y-2 border rounded p-2 bg-gray-50 min-h-[200px]">
+                {products.length === 0 ? <div className="text-center text-gray-500 py-8">No products yet.</div> : (
+                  products.map((item, index) => (
+                    <div key={item.id} className="flex items-center justify-between bg-white p-2 rounded border shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gray-200 rounded overflow-hidden">
+                          {item.product_details.image_url && (
+                            <Image src={item.product_details.image_url} alt="" width={40} height={40} className="object-cover w-full h-full" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-medium text-sm line-clamp-1">{item.product_details.name}</div>
+                          <div className="text-xs text-gray-500">${item.product_details.price_usd}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" disabled={index === 0} onClick={() => moveProduct(index, 'up')}><ArrowUp className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" disabled={index === products.length - 1} onClick={() => moveProduct(index, 'down')}><ArrowDown className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => removeProduct(item.id)}><X className="h-4 w-4" /></Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function GeneralSettings({ settings, onUpdate }: { settings: Record<string, any>, onUpdate: () => void }) {
   const [formData, setFormData] = useState(settings);
   const [saving, setSaving] = useState(false);
@@ -693,25 +1051,21 @@ function GeneralSettings({ settings, onUpdate }: { settings: Record<string, any>
           />
         </div>
 
-        <LogoUploader
-          initialLogoPath={formData.logo_path}
+        <SingleImageUploader
+          label="Logo"
+          bucketName={LOGO_BUCKET_NAME}
+          initialPath={formData.logo_path}
           onUploadSuccess={handleLogoUpdate}
+          recommendedSize="240x80px"
         />
 
-        <div className="space-y-2">
-          <Label htmlFor="payment_qr_url">Payment QR Code URL</Label>
-          <Input
-            id="payment_qr_url"
-            value={formData.payment_qr_url || ''}
-            onChange={e => setFormData({ ...formData, payment_qr_url: e.target.value })}
-            placeholder="URL to your payment QR code image"
-          />
-          {formData.payment_qr_url && (
-            <div className="pt-2">
-              <Image src={formData.payment_qr_url} alt="Payment QR Code" width={150} height={150} className="rounded-md border" />
-            </div>
-          )}
-        </div>
+        <SingleImageUploader
+          label="Payment QR Code"
+          bucketName="product-images" /* Reusing existing public bucket if possible, or create 'misc' */
+          initialPath={formData.payment_qr_url}
+          onUploadSuccess={(url) => setFormData({ ...formData, payment_qr_url: url })}
+          recommendedSize="Square (e.g. 500x500px)"
+        />
 
         <div className="space-y-2">
           <Label htmlFor="bank_info">Bank Information</Label>
