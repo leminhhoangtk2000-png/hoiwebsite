@@ -1,0 +1,8 @@
+2026/01/20-01:31:33.652 3b03 Creating DB /Users/neuser/Website Hội/shopee-scraper/shopee_profile/Default/Local Storage/leveldb since it was missing.
+2026/01/20-01:31:33.658 3b03 Reusing MANIFEST /Users/neuser/Website Hội/shopee-scraper/shopee_profile/Default/Local Storage/leveldb/MANIFEST-000001
+2026/01/20-01:32:33.662 3103 Level-0 table #5: started
+2026/01/20-01:32:33.666 3103 Level-0 table #5: 55006 bytes OK
+2026/01/20-01:32:33.668 3103 Delete type=0 #3
+2026/01/20-01:33:40.727 3103 Level-0 table #7: started
+2026/01/20-01:33:40.731 3103 Level-0 table #7: 53185 bytes OK
+2026/01/20-01:33:40.733 3103 Delete type=0 #4

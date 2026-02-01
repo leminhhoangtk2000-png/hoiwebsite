@@ -4,15 +4,13 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  if (typeof window === 'undefined') {
-    // Server-side: log warning but don't throw
-    console.warn('⚠️  Missing Supabase environment variables. Please check your .env.local file.')
-  }
+  throw new Error(
+    'Missing Supabase environment variables. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env.local file.'
+  )
 }
 
-// Create Supabase client - will work even if env vars are missing (will fail on actual queries)
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key'
-)
+// WARNING: This client does not handle cookies and will fail RLS policies that rely on authentication.
+// Use '@/lib/supabase-server' for Server Components.
+// Use '@/lib/supabase-client' for Client Components.
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 

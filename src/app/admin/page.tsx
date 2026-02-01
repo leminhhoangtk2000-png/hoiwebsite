@@ -1,9 +1,10 @@
-import { supabase } from '@/lib/supabase'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { Card } from '@/components/ui/card'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 
 async function getStats() {
+  const supabase = await createServerSupabaseClient()
   const [productsResult, ordersResult, customersResult] = await Promise.all([
     supabase.from('products').select('id', { count: 'exact', head: true }),
     supabase.from('orders').select('id', { count: 'exact', head: true }),

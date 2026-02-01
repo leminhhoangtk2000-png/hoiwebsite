@@ -7,9 +7,25 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
-import { supabase } from '@/lib/supabase'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { createClient } from '@/lib/supabase-client'
 import { toast } from 'sonner'
-import { Check, ChevronRight } from 'lucide-react'
+import { Check, ChevronRight, ChevronsUpDown, Minus, Plus, Trash2 } from 'lucide-react'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { countries } from "@/lib/countries"
+import { cn } from "@/lib/utils"
 
 interface SiteSettings {
   payment_qr_url: string | null
@@ -18,19 +34,30 @@ interface SiteSettings {
 
 export default function CheckoutPage() {
   const router = useRouter()
-  const { items, getSubtotal, clearCart } = useCartStore()
+  const { items, getSubtotal, clearCart, updateQuantity, removeItem } = useCartStore()
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null)
-  
+  const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const supabase = createClient()
+
   // Form data
   const [formData, setFormData] = useState({
     fullName: '',
     phone: '',
     email: '',
-    address: ''
+    address: '',
+    city: '',
+    province: '',
+    nation: 'Vietnam'
   })
-  
+
   const [couponCode, setCouponCode] = useState('')
   const [couponDiscount, setCouponDiscount] = useState(0)
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null)
@@ -51,13 +78,19 @@ export default function CheckoutPage() {
     try {
       const { data, error } = await supabase
         .from('site_settings')
-        .select('payment_qr_url, bank_info')
-        .maybeSingle()
+        .select('key, value')
 
       if (error) throw error
-      if (data) {
-        setSiteSettings(data)
-      }
+
+      const settingsMap = (data || []).reduce((acc: any, item: any) => {
+        acc[item.key] = item.value;
+        return acc;
+      }, {});
+
+      setSiteSettings({
+        payment_qr_url: settingsMap['payment_qr_url'] || null,
+        bank_info: settingsMap['bank_info'] || null
+      })
     } catch (error) {
       console.error('Error fetching site settings:', error)
     }
@@ -103,7 +136,7 @@ export default function CheckoutPage() {
           full_name: formData.fullName,
           phone: formData.phone,
           email: formData.email,
-          address: formData.address
+          address: `${formData.address}, ${formData.city}, ${formData.province}, ${formData.nation}`
         })
         .select()
         .single()
@@ -126,16 +159,39 @@ export default function CheckoutPage() {
       if (orderError) throw orderError
 
       // Step 3: Create order items
-      const orderItems = items.map(item => ({
-        order_id: order.id,
-        product_id: item.productId,
-        product_name: item.name,
-        price: item.price,
-        color: item.color,
-        size: item.size,
-        quantity: item.quantity,
-        image_url: item.image
-      }))
+      function parseVariantDescription(desc: string) {
+        let color = null;
+        let size = null;
+        if (!desc) return { color, size };
+
+        const parts = desc.split(', ');
+        parts.forEach(part => {
+          const [key, value] = part.split(': ');
+          if (!key || !value) return;
+          const normalizedKey = key.trim().toLowerCase();
+          if (normalizedKey === 'color' || normalizedKey === 'màu sắc' || normalizedKey === 'màu') {
+            color = value.trim();
+          } else if (normalizedKey === 'size' || normalizedKey === 'kích cỡ' || normalizedKey === 'kích thước') {
+            size = value.trim();
+          }
+        });
+        return { color, size };
+      }
+
+      const orderItems = items.map(item => {
+        const { color, size } = parseVariantDescription(item.variantDescription || '');
+        return {
+          order_id: order.id,
+          product_id: item.productId,
+          product_name: item.name,
+          price: item.price,
+          // variant_description field removed as it doesn't exist in DB
+          color: color,
+          size: size,
+          quantity: item.quantity,
+          image_url: item.image
+        };
+      })
 
       const { error: itemsError } = await supabase
         .from('order_items')
@@ -164,6 +220,14 @@ export default function CheckoutPage() {
     { number: 4, title: 'Confirm' }
   ]
 
+  if (!mounted) {
+    return (
+      <div className="container mx-auto px-4 py-16">
+        <div className="text-center">Loading...</div>
+      </div>
+    )
+  }
+
   return (
     <div className="container mx-auto px-4 py-8 md:py-16">
       <h1 className="text-3xl font-bold text-[#333333] mb-8">Checkout</h1>
@@ -175,11 +239,10 @@ export default function CheckoutPage() {
             <div key={s.number} className="flex items-center flex-1">
               <div className="flex flex-col items-center flex-1">
                 <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
-                    step >= s.number
-                      ? 'bg-[#333333] text-white'
-                      : 'bg-gray-200 text-gray-600'
-                  }`}
+                  className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${step >= s.number
+                    ? 'bg-[#333333] text-white'
+                    : 'bg-gray-200 text-gray-600'
+                    }`}
                 >
                   {step > s.number ? <Check className="h-5 w-5" /> : s.number}
                 </div>
@@ -230,7 +293,7 @@ export default function CheckoutPage() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="address">Address *</Label>
+                  <Label htmlFor="address">Street Address *</Label>
                   <Input
                     id="address"
                     value={formData.address}
@@ -238,9 +301,80 @@ export default function CheckoutPage() {
                     required
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="city">City *</Label>
+                    <Input
+                      id="city"
+                      value={formData.city}
+                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="province">Province *</Label>
+                    <Input
+                      id="province"
+                      value={formData.province}
+                      onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="nation">Nation *</Label>
+                  <Popover open={open} onOpenChange={setOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={open}
+                        className="w-full justify-between font-normal"
+                      >
+                        {formData.nation
+                          ? formData.nation
+                          : "Select nation..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[300px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search nation..." />
+                        <CommandList>
+                          <CommandEmpty>No nation found.</CommandEmpty>
+                          <CommandGroup>
+                            {countries.map((country) => (
+                              <CommandItem
+                                key={country}
+                                value={country}
+                                onSelect={(currentValue) => {
+                                  // cmdk lowercases values. We need to match it back to our Title Case list.
+                                  // But `country` prop in CommandItem is the actual value we want.
+                                  // `currentValue` from onSelect is the lowercased value.
+                                  // We can use the loop scope `country` variable or find it.
+                                  // Using `country` (closure) is safest if we trust the loop.
+                                  setFormData({ ...formData, nation: country })
+                                  setOpen(false)
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    formData.nation === country ? "opacity-100" : "opacity-0"
+                                  )}
+                                />
+                                {country}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 <Button
                   onClick={() => {
-                    if (!formData.fullName || !formData.phone || !formData.email || !formData.address) {
+                    if (!formData.fullName || !formData.phone || !formData.email || !formData.address || !formData.city || !formData.province || !formData.nation) {
                       toast.error('Please fill in all fields')
                       return
                     }
@@ -354,6 +488,9 @@ export default function CheckoutPage() {
                   <p><strong>Phone:</strong> {formData.phone}</p>
                   <p><strong>Email:</strong> {formData.email}</p>
                   <p><strong>Address:</strong> {formData.address}</p>
+                  <p><strong>City:</strong> {formData.city}</p>
+                  <p><strong>Province:</strong> {formData.province}</p>
+                  <p><strong>Nation:</strong> {formData.nation}</p>
                 </div>
                 <div className="flex gap-4">
                   <Button
@@ -377,12 +514,74 @@ export default function CheckoutPage() {
 
         {/* Order Summary Sidebar */}
         <div className="lg:col-span-1">
-          <Card className="p-6 sticky top-24">
+          <Card className="p-6 sticky top-24 max-h-[calc(100vh-6rem)] overflow-y-auto">
             <h2 className="text-xl font-bold text-[#333333] mb-4">Order Summary</h2>
+
+            <div className="space-y-4 mb-6">
+              {items.map((item) => (
+                <div key={item.id} className="flex gap-3 py-3 border-b last:border-0">
+                  <div className="h-20 w-20 bg-gray-100 rounded overflow-hidden flex-shrink-0 relative border border-gray-200">
+                    {item.image ? (
+                      <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">No Img</div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0 flex flex-col justify-between">
+                    <div>
+                      <p className="font-medium text-sm text-[#333333] truncate" title={item.name}>{item.name}</p>
+                      <p className="text-xs text-gray-500 truncate">{item.variantDescription}</p>
+                    </div>
+                    <div className="flex justify-between items-end mt-2">
+                      <div className="text-sm font-semibold">
+                        ${(item.price * item.quantity).toFixed(2)}
+                        <div className="text-xs text-gray-400 font-normal">
+                          {(item.price * item.quantity * 25450).toLocaleString('vi-VN')} ₫
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center border rounded-md">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 rounded-none"
+                            onClick={() => updateQuantity(item.id, Math.max(1, item.quantity - 1))}
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="w-6 text-center text-xs">{item.quantity}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 rounded-none"
+                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-red-500 hover:text-red-600 hover:bg-red-50"
+                          onClick={() => removeItem(item.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
             <div className="space-y-3 mb-6">
               <div className="flex justify-between text-gray-600">
                 <span>Subtotal</span>
-                <span className="font-medium">${subtotal.toFixed(2)}</span>
+                <div className="text-right">
+                  <span className="font-medium block">${subtotal.toFixed(2)}</span>
+                  <span className="text-xs text-gray-400 block">{(subtotal * 25450).toLocaleString('vi-VN')} ₫</span>
+                </div>
               </div>
               {appliedCoupon && (
                 <div className="flex justify-between text-green-600">
@@ -391,14 +590,17 @@ export default function CheckoutPage() {
                 </div>
               )}
               <div className="border-t pt-3">
-                <div className="flex justify-between text-lg font-bold text-[#333333]">
+                <div className="flex justify-between items-center text-lg font-bold text-[#333333]">
                   <span>Total</span>
-                  <span>${total.toFixed(2)}</span>
+                  <div className="text-right">
+                    <span className="block">${total.toFixed(2)}</span>
+                    <span className="text-sm font-normal text-gray-500 block">{(total * 25450).toLocaleString('vi-VN')} ₫</span>
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="text-sm text-gray-600">
-              <p className="mb-2">Items in cart: {items.length}</p>
+            <div className="text-xs text-gray-400 text-center">
+              Exchange rate: 1 USD ≈ 25,450 VND
             </div>
           </Card>
         </div>

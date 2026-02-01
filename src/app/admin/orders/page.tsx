@@ -6,9 +6,10 @@ import { Card } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase-client'
 import { toast } from 'sonner'
-import { Eye, DollarSign, ShoppingCart, Download } from 'lucide-react'
+import { Eye, DollarSign, ShoppingCart, Download, X } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 
 interface Order {
   id: string
@@ -23,13 +24,14 @@ interface Order {
     phone: string
     address: string
   } | null
+  order_items: { product_name: string; quantity: number }[]
 }
 
 interface OrderItem {
   product_name: string
   price: number
-  color: string
-  size: string
+  color: string | null
+  size: string | null
   quantity: number
 }
 
@@ -41,13 +43,49 @@ interface DashboardStats {
 const formatUSD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
 export default function AdminOrdersPage() {
+  const supabase = createClient()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [orderItems, setOrderItems] = useState<OrderItem[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats>({ totalRevenue: 0, totalOrders: 0 });
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+
+  const filteredOrders = orders.filter(order => {
+    if (statusFilter !== 'all' && order.status !== statusFilter) return false
+
+    if (startDate) {
+      const orderDate = new Date(order.created_at)
+      const start = new Date(startDate)
+      // Comparison: we want orders FROM the start date (inclusive)
+      // new Date('YYYY-MM-DD') is UTC midnight. order.created_at is UTC.
+      // So orderDate >= start works if start is truly midnight UTC of that day.
+      // But let's be safe and normalized to simplified day comparison or just timestamp.
+      if (orderDate < start) return false
+    }
+
+    if (endDate) {
+      const orderDate = new Date(order.created_at)
+      const end = new Date(endDate)
+      // Set end date to end of that day (23:59:59.999)
+      end.setHours(23, 59, 59, 999)
+
+      // Fix for timezone offset issue with simple string construction?
+      // Actually, input date gives YYYY-MM-DD. 
+      // If we treat everything as UTC, new Date('2024-01-01') is 2024-01-01T00:00:00Z.
+      // If I want to include the whole endDate, comparing < end (which is 23:59:59) covers it.
+      if (orderDate > end) return false
+    }
+    return true
+  })
+
+  const stats = {
+    totalRevenue: filteredOrders.filter(o => o.status === 'paid' || o.status === 'shipped').reduce((sum, o) => sum + o.total_amount, 0),
+    totalOrders: filteredOrders.length
+  }
 
 
   useEffect(() => {
@@ -61,7 +99,8 @@ export default function AdminOrdersPage() {
         .from('orders')
         .select(`
           *,
-          customer:customers(full_name, email, phone, address)
+          customer:customers(full_name, email, phone, address),
+          order_items ( product_name, quantity )
         `)
         .order('created_at', { ascending: false })
 
@@ -69,21 +108,14 @@ export default function AdminOrdersPage() {
 
       const normalizedData = (data || []).map((order: any) => ({
         ...order,
-        customer: Array.isArray(order.customer) 
+        customer: Array.isArray(order.customer)
           ? (order.customer[0] || null)
           : order.customer || null
       }))
 
       setOrders(normalizedData)
 
-      // Calculate dashboard stats
-      const totalRevenue = normalizedData
-        .filter(order => order.status === 'paid' || order.status === 'shipped')
-        .reduce((sum, order) => sum + order.total_amount, 0);
-      
-      const totalOrders = normalizedData.length;
-      
-      setDashboardStats({ totalRevenue, totalOrders });
+      setOrders(normalizedData)
 
     } catch (error: any) {
       console.error('Error fetching orders:', error)
@@ -134,24 +166,24 @@ export default function AdminOrdersPage() {
   async function handleExportCSV() {
     setExporting(true);
     toast.info("Exporting data, please wait...");
-  
+
     try {
       // For a real app, you might want to fetch ALL orders, not just the currently loaded ones.
       // This is a simplified example using the orders already in state.
       const dataToExport = orders;
-  
+
       if (dataToExport.length === 0) {
         toast.warning("No data to export.");
         return;
       }
-  
+
       const headers = [
         "Order ID", "Date", "Status", "Customer Name", "Customer Email", "Customer Phone",
         "Customer Address", "Total Amount (USD)", "Coupon Code", "Discount Amount (USD)"
       ];
-  
+
       const csvRows = [headers.join(',')];
-  
+
       dataToExport.forEach(order => {
         const row = [
           order.id,
@@ -167,7 +199,7 @@ export default function AdminOrdersPage() {
         ];
         csvRows.push(row.join(','));
       });
-  
+
       const csvString = csvRows.join('\n');
       const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -177,9 +209,9 @@ export default function AdminOrdersPage() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-  
+
       toast.success("Data exported successfully!");
-  
+
     } catch (error: any) {
       console.error("Error exporting CSV:", error);
       toast.error("Failed to export data.");
@@ -209,7 +241,7 @@ export default function AdminOrdersPage() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
-              <div className="text-2xl font-bold">{formatUSD.format(dashboardStats.totalRevenue)}</div>
+              <div className="text-2xl font-bold">{formatUSD.format(stats.totalRevenue)}</div>
               <p className="text-xs text-muted-foreground">From completed orders</p>
             </div>
           </div>
@@ -221,22 +253,58 @@ export default function AdminOrdersPage() {
               <ShoppingCart className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
-              <div className="text-2xl font-bold">+{dashboardStats.totalOrders}</div>
+              <div className="text-2xl font-bold">+{stats.totalOrders}</div>
               <p className="text-xs text-muted-foreground">Across all statuses</p>
             </div>
           </div>
         </Card>
       </div>
 
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <h2 className="text-2xl font-bold text-[#333333]">All Orders</h2>
-        <Button onClick={handleExportCSV} disabled={exporting}>
-          <Download className="h-4 w-4 mr-2"/>
-          {exporting ? "Exporting..." : "Export to CSV"}
-        </Button>
+        <div className="flex gap-2">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="paid">Paid</SelectItem>
+              <SelectItem value="shipped">Shipped</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="flex items-center gap-2">
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-auto"
+              placeholder="Start Date"
+            />
+            <span className="text-gray-500">-</span>
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-auto"
+              placeholder="End Date"
+            />
+            {(startDate || endDate) && (
+              <Button variant="ghost" size="icon" onClick={() => { setStartDate(''); setEndDate(''); }}>
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+          <Button onClick={handleExportCSV} disabled={exporting}>
+            <Download className="h-4 w-4 mr-2" />
+            {exporting ? "Exporting..." : "Export to CSV"}
+          </Button>
+        </div>
       </div>
 
-      {orders.length === 0 ? (
+      {filteredOrders.length === 0 ? (
         <Card className="p-8 text-center">
           <p className="text-gray-600">No orders found.</p>
         </Card>
@@ -247,6 +315,7 @@ export default function AdminOrdersPage() {
               <TableRow>
                 <TableHead>Order ID</TableHead>
                 <TableHead>Customer</TableHead>
+                <TableHead>Products</TableHead>
                 <TableHead>Total</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Date</TableHead>
@@ -254,13 +323,19 @@ export default function AdminOrdersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {orders.map((order) => (
+              {filteredOrders.map((order) => (
                 <TableRow key={order.id}>
                   <TableCell className="font-mono text-sm">{order.id.slice(0, 8)}...</TableCell>
                   <TableCell>
                     <div>
                       <div className="font-medium">{order.customer?.full_name || 'N/A'}</div>
                       <div className="text-sm text-gray-500">{order.customer?.email || ''}</div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="max-w-[200px] truncate text-sm text-gray-500" title={order.order_items?.map(i => `${i.product_name} (${i.quantity})`).join(', ')}>
+                      {order.order_items?.map(i => i.product_name).slice(0, 2).join(', ')}
+                      {(order.order_items?.length || 0) > 2 && '...'}
                     </div>
                   </TableCell>
                   <TableCell>{formatUSD.format(order.total_amount)}</TableCell>
@@ -336,14 +411,35 @@ export default function AdminOrdersPage() {
                 <p className="text-sm font-semibold mb-2">Items:</p>
                 <div className="space-y-2">
                   {orderItems.map((item, index) => (
-                    <div key={index} className="flex justify-between border-b pb-2">
-                      <div>
-                        <p className="font-medium">{item.product_name}</p>
-                        <p className="text-sm text-gray-500">
-                          {item.color} / {item.size} × {item.quantity}
-                        </p>
+                    <div key={index} className="flex gap-4 border-b pb-4 last:border-0">
+                      <div className="h-16 w-16 bg-gray-100 rounded overflow-hidden flex-shrink-0 relative border border-gray-200">
+                        {/* Assuming check_order_schema confirmed image_url exists in order_items. It should. */}
+                        {/* Need to add image_url to OrderItem interface and fetch it in fetchOrderItems? */}
+                        {/* fetchOrderItems selects '*'. OrderItem interface needs image_url? */}
+                        {/* Wait, I updated OrderItem earlier? No. I need to update OrderItem too if I use it here. */}
+                        {/* But this is using `orderItems` state, which comes from `fetchOrderItems`. */}
+                        {/* I should check if `item` has `image_url`. */}
+                        {(item as any).image_url ? (
+                          <img src={(item as any).image_url} alt={item.product_name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">No Img</div>
+                        )}
                       </div>
-                      <p className="font-medium">{formatUSD.format(item.price * item.quantity)}</p>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-medium text-[#333333]">{item.product_name}</p>
+                            <p className="text-sm text-gray-500">
+                              {[
+                                item.color && `Color: ${item.color}`,
+                                item.size && `Size: ${item.size}`
+                              ].filter(Boolean).join(', ')}
+                            </p>
+                          </div>
+                          <p className="font-medium">{formatUSD.format(item.price * item.quantity)}</p>
+                        </div>
+                        <p className="text-sm text-gray-500 mt-1">Qty: {item.quantity}</p>
+                      </div>
                     </div>
                   ))}
                 </div>

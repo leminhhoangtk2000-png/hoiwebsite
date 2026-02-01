@@ -1,4 +1,4 @@
-import AdminSidebar from '@/components/AdminSidebar'
+import AdminSidebar from '@/components/admin/AdminSidebar'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 

@@ -33,7 +33,7 @@ export default function CartPage() {
   return (
     <div className="container mx-auto px-4 py-8 md:py-16">
       <h1 className="text-3xl font-bold text-[#333333] mb-8">Shopping Cart</h1>
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Cart Items */}
         <div className="lg:col-span-2 space-y-4">
@@ -65,10 +65,13 @@ export default function CartPage() {
                     </h3>
                   </Link>
                   <p className="text-sm text-gray-600 mb-2">
-                    {item.color} / {item.size}
+                    {item.variantDescription}
                   </p>
-                  <p className="text-lg font-semibold text-[#333333] mb-4">
+                  <p className="text-lg font-semibold text-[#333333] mb-1">
                     ${item.price.toFixed(2)}
+                  </p>
+                  <p className="text-sm text-gray-500 mb-4">
+                    {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.price * 25400)}
                   </p>
 
                   {/* Quantity Controls */}
@@ -109,6 +112,9 @@ export default function CartPage() {
                 <div className="text-right flex-shrink-0">
                   <p className="text-lg font-semibold text-[#333333]">
                     ${(item.price * item.quantity).toFixed(2)}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.price * item.quantity * 25400)}
                   </p>
                 </div>
               </div>

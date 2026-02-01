@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
+import Header from "@/components/layout/Header";
+import Footer from "@/components/layout/Footer";
+import InstagramChatBubble from "@/components/InstagramChatBubble";
 import { Toaster } from "@/components/ui/sonner";
-import { supabase } from "@/lib/supabase";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
 
-// No caching to reflect admin changes immediately
-export const revalidate = 0;
+// Cache for 60 seconds
+export const revalidate = 60;
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,6 +21,7 @@ const geistMono = Geist_Mono({
 });
 
 async function getSiteSettings() {
+  const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase.from('site_settings').select('key, value');
   if (error) {
     console.error("Error fetching site settings:", error);
@@ -32,9 +34,10 @@ async function getSiteSettings() {
 }
 
 async function getCategories() {
+  const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from('categories')
-    .select('id, name, slug')
+    .select('id, name, slug, parent_id')
     .order('name', { ascending: true });
   if (error) {
     console.error("Error fetching categories:", error);
@@ -44,9 +47,10 @@ async function getCategories() {
 }
 
 export async function generateMetadata(): Promise<Metadata> {
+  const supabase = await createServerSupabaseClient();
   const settings = await getSiteSettings();
   const siteTitle = settings.site_title || "UNIQLO CLONE - Minimalist Fashion";
-  
+
   let logoUrl = "/file.svg";
   if (settings.logo_path) {
     if (settings.logo_path.startsWith('http')) {
@@ -62,7 +66,7 @@ export async function generateMetadata(): Promise<Metadata> {
     description: "A minimalist e-commerce experience inspired by Uniqlo",
     icons: {
       icon: logoUrl,
-      'apple-touch-icon': logoUrl,
+      apple: logoUrl,
     },
     openGraph: {
       title: siteTitle,
@@ -83,9 +87,10 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const supabase = await createServerSupabaseClient();
   const settings = await getSiteSettings();
   const categories = await getCategories();
-  
+
   let logoUrl = "/file.svg";
   if (settings.logo_path) {
     if (settings.logo_path.startsWith('http')) {
@@ -104,10 +109,11 @@ export default async function RootLayout({
       >
         <Header logoUrl={logoUrl} categories={categories} />
         <main className="flex-1">
-        {children}
+          {children}
         </main>
         <Footer />
         <Toaster />
+        <InstagramChatBubble instagramUsername="hoi.vintage" />
       </body>
     </html>
   );

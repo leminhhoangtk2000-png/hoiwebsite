@@ -10,29 +10,31 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
-import { Trash2, Upload, Loader2, X, PlusCircle, ArrowLeft } from 'lucide-react'
+import { Trash2, Upload, Loader2, X, PlusCircle, ArrowLeft, ArrowUp, ArrowDown } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
 
-// Re-using interfaces from the main products page for consistency
 interface Category {
   id: string
   name: string
 }
 
 interface ImageAsset {
-  id?: string; // ID from product_images table
+  id?: string;
   preview: string;
   url: string;
   file?: File;
 }
 
 interface VariantOption {
-  id?: string; // ID from product_variant_options table
+  id?: string;
   value: string;
+  image_url?: string;
+  stock?: number;
 }
+
 interface Variant {
-  id: string; // Can be UUID from DB or new Date().toString() for new ones
+  id: string;
   name: string;
   options: VariantOption[];
 }
@@ -45,7 +47,7 @@ export default function AdminProductEditPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [categories, setCategories] = useState<Category[]>([])
-  
+
   const [imageAssets, setImageAssets] = useState<ImageAsset[]>([])
   const [variants, setVariants] = useState<Variant[]>([]);
   const [newOptions, setNewOptions] = useState<Record<string, string>>({});
@@ -59,39 +61,34 @@ export default function AdminProductEditPage() {
     category_id: '',
     discount_type: 'percentage' as 'percentage' | 'fixed',
     discount_value: '',
+    promotion_start_date: '',
+    promotion_end_date: '',
+    stock: '', // For simple products
   })
 
   useEffect(() => {
     if (!productId) return
-    
+
     async function fetchInitialData() {
       setLoading(true)
       try {
-        // Fetch categories first
         const { data: catData, error: catError } = await supabase
           .from('categories').select('id, name').order('name');
         if (catError) throw catError;
         setCategories(catData || []);
 
-        // Fetch the specific product and its related data
         const { data: productData, error: productError } = await supabase
           .from('products')
           .select(`
             *,
             product_images ( id, image_url, display_order ),
-            product_variants ( id, name, product_variant_options ( id, value ) )
+            product_variants ( id, name, product_variant_options ( id, value, image_url, stock ) ) 
           `)
           .eq('id', productId)
           .single()
 
-        if (productError) throw productError
-        if (!productData) {
-          toast.error("Product not found.")
-          router.push('/admin/products')
-          return
-        }
+        if (productError) throw productError;
 
-        // Populate form states
         setFormData({
           name: productData.name,
           description: productData.description || '',
@@ -100,135 +97,146 @@ export default function AdminProductEditPage() {
           category_id: productData.category_id || '',
           discount_type: productData.discount_type || 'percentage',
           discount_value: productData.discount_value?.toString() || '',
+          promotion_start_date: productData.promotion_start_date || '',
+          promotion_end_date: productData.promotion_end_date || '',
+          stock: productData.stock?.toString() || '0',
         });
 
         const loadedImages = productData.product_images
-          .sort((a, b) => a.display_order - b.display_order)
-          .map(img => ({ id: img.id, preview: img.image_url, url: img.image_url }));
+          .sort((a: { display_order: number }, b: { display_order: number }) => a.display_order - b.display_order)
+          .map((img: { id: any; image_url: string }) => ({ id: img.id, preview: img.image_url, url: img.image_url }));
         setImageAssets(loadedImages);
 
-        const loadedVariants = productData.product_variants.map(v => ({
+        const loadedVariants = productData.product_variants.map((v: any) => ({
           id: v.id,
           name: v.name,
-          options: v.product_variant_options.map(opt => ({ id: opt.id, value: opt.value }))
+          options: v.product_variant_options.map((opt: any) => ({
+            id: opt.id,
+            value: opt.value,
+            image_url: opt.image_url || '',
+            stock: opt.stock || 0
+          }))
         }));
         setVariants(loadedVariants);
 
       } catch (error: any) {
-        console.error("Failed to load product data:", error)
-        toast.error("Failed to load product data. " + error.message)
-        router.push('/admin/products')
+        console.error("Error fetching product:", error);
+        toast.error("Failed to load product data.");
       } finally {
         setLoading(false)
       }
     }
-    
     fetchInitialData()
   }, [productId, router])
+
 
   async function handleUpdate(e: React.FormEvent) {
     e.preventDefault();
     if (!productId || typeof productId !== 'string') {
-        toast.error("Invalid Product ID.");
-        return;
+      toast.error("Invalid Product ID.");
+      return;
     }
-    
+
     setSaving(true);
 
     try {
-        // Step 1: Handle new image uploads.
-        const newFiles = imageAssets.filter(asset => asset.file);
-        const uploadedUrls: { [key: string]: string } = {};
+      // Step 1: new image uploads
+      const newFiles = imageAssets.filter(asset => asset.file);
+      const uploadedUrls: { [key: string]: string } = {};
 
-        if (newFiles.length > 0) {
-            toast.info(`Uploading ${newFiles.length} new image(s)...`);
-            const uploadPromises = newFiles.map(async asset => {
-                if (!asset.file) return null;
-                const fileExt = asset.file.name.split('.').pop();
-                const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-                const filePath = `product-images/${fileName}`;
+      if (newFiles.length > 0) {
+        toast.info(`Uploading ${newFiles.length} new image(s)...`);
+        const uploadPromises = newFiles.map(async asset => {
+          if (!asset.file) return null;
+          const fileExt = asset.file.name.split('.').pop();
+          const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+          const filePath = `product-images/${fileName}`;
 
-                const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, asset.file);
-                if (uploadError) throw new Error(`Failed to upload ${asset.file.name}: ${uploadError.message}`);
+          const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, asset.file);
+          if (uploadError) throw new Error(`Failed to upload ${asset.file.name}: ${uploadError.message}`);
 
-                const { data: urlData } = supabase.storage.from('product-images').getPublicUrl(filePath);
-                if (!urlData.publicUrl) throw new Error('Failed to get public URL for new image');
-                
-                // Keep track of which blob URL corresponds to which final URL
-                uploadedUrls[asset.preview] = urlData.publicUrl;
-                return true;
-            });
-            await Promise.all(uploadPromises);
-        }
+          const { data: urlData } = supabase.storage.from('product-images').getPublicUrl(filePath);
+          if (!urlData.publicUrl) throw new Error('Failed to get public URL for new image');
 
-        // Step 2: Update the core product details.
-        const { error: productUpdateError } = await supabase
-            .from('products')
-            .update({
-                name: formData.name,
-                description: formData.description || null,
-                price_usd: parseFloat(formData.price_usd) || 0,
-                price_vnd: parseInt(formData.price_vnd, 10) || 0,
-                category_id: formData.category_id,
-                discount_type: formData.discount_value ? formData.discount_type : null,
-                discount_value: formData.discount_value ? parseFloat(formData.discount_value) : null,
-            })
-            .eq('id', productId);
+          uploadedUrls[asset.preview] = urlData.publicUrl;
+          return true;
+        });
+        await Promise.all(uploadPromises);
+      }
 
-        if (productUpdateError) throw productUpdateError;
+      // Step 2: core product
+      const { error: productUpdateError } = await supabase
+        .from('products')
+        .update({
+          name: formData.name,
+          description: formData.description || null,
+          price_usd: parseFloat(formData.price_usd) || 0,
+          price_vnd: parseInt(formData.price_vnd, 10) || 0,
+          category_id: formData.category_id,
+          discount_type: formData.discount_value ? formData.discount_type : null,
+          discount_value: formData.discount_value ? parseFloat(formData.discount_value) : null,
+          promotion_start_date: formData.promotion_start_date || null,
+          promotion_end_date: formData.promotion_end_date || null,
+          promotion_percent: formData.discount_type === 'percentage' && formData.discount_value ? parseFloat(formData.discount_value) : null,
+          stock: parseInt(formData.stock, 10) || 0,
+        })
+        .eq('id', productId);
 
-        // Step 3: Reconcile images (delete all and re-insert).
-        // First delete all existing images for the product.
-        const { error: deleteImagesError } = await supabase.from('product_images').delete().eq('product_id', productId);
-        if (deleteImagesError) throw deleteImagesError;
+      if (productUpdateError) throw productUpdateError;
 
-        // Then insert the new list of images.
-        const finalImageAssets = imageAssets.map((asset, index) => ({
-            product_id: productId,
-            image_url: uploadedUrls[asset.preview] || asset.url, // Use newly uploaded URL if available
-            display_order: index
+      // Step 3: Images
+      const { error: deleteImagesError } = await supabase.from('product_images').delete().eq('product_id', productId);
+      if (deleteImagesError) throw deleteImagesError;
+
+      const finalImageAssets = imageAssets.map((asset, index) => ({
+        product_id: productId,
+        image_url: uploadedUrls[asset.preview] || asset.url,
+        display_order: index
+      }));
+
+      if (finalImageAssets.length > 0) {
+        const { error: insertImagesError } = await supabase.from('product_images').insert(finalImageAssets);
+        if (insertImagesError) throw insertImagesError;
+      }
+
+      // Step 4: Variants
+      const { error: deleteVariantsError } = await supabase.from('product_variants').delete().eq('product_id', productId);
+      if (deleteVariantsError) throw deleteVariantsError;
+
+      for (const variant of variants) {
+        if (!variant.name.trim() || variant.options.length === 0) continue;
+
+        const { data: variantData, error: variantError } = await supabase
+          .from('product_variants')
+          .insert({ product_id: productId, name: variant.name.trim() })
+          .select('id')
+          .single();
+
+        if (variantError) throw variantError;
+        const variantId = variantData.id;
+
+        const optionsToInsert = variant.options.map(opt => ({
+          variant_id: variantId,
+          value: opt.value,
+          image_url: opt.image_url || null,
+          stock: opt.stock || 0
         }));
-        
-        if (finalImageAssets.length > 0) {
-            const { error: insertImagesError } = await supabase.from('product_images').insert(finalImageAssets);
-            if (insertImagesError) throw insertImagesError;
-        }
+        const { error: optionError } = await supabase.from('product_variant_options').insert(optionsToInsert);
+        if (optionError) throw optionError;
+      }
 
-        // Step 4: Reconcile variants (delete all and re-insert).
-        const { error: deleteVariantsError } = await supabase.from('product_variants').delete().eq('product_id', productId);
-        if (deleteVariantsError) throw deleteVariantsError;
-
-        for (const variant of variants) {
-            if (!variant.name.trim() || variant.options.length === 0) continue;
-
-            const { data: variantData, error: variantError } = await supabase
-                .from('product_variants')
-                .insert({ product_id: productId, name: variant.name.trim() })
-                .select('id')
-                .single();
-            
-            if (variantError) throw variantError;
-            const variantId = variantData.id;
-
-            const optionsToInsert = variant.options.map(opt => ({ variant_id: variantId, value: opt.value }));
-            const { error: optionError } = await supabase.from('product_variant_options').insert(optionsToInsert);
-            if (optionError) throw optionError;
-        }
-
-        toast.success("Product updated successfully!");
-        router.push('/admin/products');
+      toast.success("Product updated successfully!");
+      router.push('/admin/products');
 
     } catch (error: any) {
-        console.error("Error updating product:", error);
-        toast.error(error.message || "An unexpected error occurred.");
+      console.error("Error updating product:", error);
+      toast.error(error.message || "An unexpected error occurred.");
     } finally {
-        setSaving(false);
+      setSaving(false);
     }
   }
 
-  // All other handlers (variants, images) can be reused, but need slight adjustments
-  // for the edit context if we were to implement complex diffing. For now, they are ok.
-    // --- Variant Handlers ---
+  // --- Variant Handlers ---
   const addVariant = () => {
     setVariants([...variants, { id: Date.now().toString(), name: '', options: [] }]);
   };
@@ -248,10 +256,9 @@ export default function AdminProductEditPage() {
     setVariants(variants.map(v => {
       if (v.id === variantId) {
         if (v.options.some(opt => opt.value.toLowerCase() === optionValue.toLowerCase())) {
-          toast.warning(`Option "${optionValue}" already exists for this variant.`);
           return v;
         }
-        return { ...v, options: [...v.options, { value: optionValue }] };
+        return { ...v, options: [...v.options, { value: optionValue, stock: 0 }] };
       }
       return v;
     }));
@@ -259,11 +266,22 @@ export default function AdminProductEditPage() {
   };
 
   const removeVariantOption = (variantId: string, optionValue: string) => {
-    setVariants(variants.map(v => 
-      v.id === variantId 
+    setVariants(variants.map(v =>
+      v.id === variantId
         ? { ...v, options: v.options.filter(opt => opt.value !== optionValue) }
         : v
     ));
+  };
+
+  const handleOptionChange = (variantId: string, optionIndex: number, field: 'value' | 'image_url' | 'stock', newValue: string | number) => {
+    setVariants(variants.map(v => {
+      if (v.id === variantId) {
+        const newOptions = [...v.options];
+        newOptions[optionIndex] = { ...newOptions[optionIndex], [field]: newValue };
+        return { ...v, options: newOptions };
+      }
+      return v;
+    }));
   };
 
   if (loading) {
@@ -280,90 +298,235 @@ export default function AdminProductEditPage() {
           </Link>
           <h1 className="text-3xl font-bold text-[#333333] mt-2">Edit Product</h1>
         </div>
-        
+
         <form onSubmit={handleUpdate} className="space-y-8">
-            {/* Form content is identical to the dialog, so we just copy it over */}
-            {/* Product Details */}
-            <div className="space-y-4 p-6 border rounded-lg">
-                <h2 className="text-xl font-semibold">Product Details</h2>
-                <div>
-                  <Label htmlFor="name">Name *</Label>
-                  <Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
-                </div>
-                <div>
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={3} />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <Label htmlFor="price_usd">Price (USD) *</Label>
-                    <Input id="price_usd" type="number" step="0.01" value={formData.price_usd} onChange={(e) => setFormData({ ...formData, price_usd: e.target.value })} required />
-                  </div>
-                  <div>
-                    <Label htmlFor="price_vnd">Price (VND) *</Label>
-                    <Input id="price_vnd" type="number" step="1000" value={formData.price_vnd} onChange={(e) => setFormData({ ...formData, price_vnd: e.target.value })} required />
-                  </div>
-                  <div>
-                    <Label htmlFor="category">Category *</Label>
-                    <Select value={formData.category_id} onValueChange={(value) => setFormData({ ...formData, category_id: value })}><SelectTrigger id="category"><SelectValue placeholder="Select a category" /></SelectTrigger><SelectContent>{categories.map((category) => (<SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>))}</SelectContent></Select>
-                  </div>
-                </div>
-              </div>
-            
-             {/* Sales Off */}
-              <div className="p-6 border rounded-lg">
-                <h2 className="text-xl font-semibold mb-4">Sales Off</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <Label htmlFor="discount_type">Discount Type</Label>
-                        <Select value={formData.discount_type} onValueChange={(value: 'percentage' | 'fixed') => setFormData({ ...formData, discount_type: value })}><SelectTrigger id="discount_type"><SelectValue placeholder="Select discount type" /></SelectTrigger><SelectContent><SelectItem value="percentage">Percentage (%)</SelectItem><SelectItem value="fixed">Fixed Amount (USD)</SelectItem></SelectContent></Select>
-                    </div>
-                    <div>
-                        <Label htmlFor="discount_value">Discount Value</Label>
-                        <Input id="discount_value" type="number" step="0.01" value={formData.discount_value} onChange={(e) => setFormData({ ...formData, discount_value: e.target.value })} placeholder={formData.discount_type === 'percentage' ? 'e.g., 10 for 10%' : 'e.g., 5 for $5 off'} />
-                    </div>
-                </div>
-              </div>
-
-            {/* Variants */}
-             <div className="p-6 border rounded-lg">
-                <h2 className="text-xl font-semibold mb-4">Product Variants</h2>
-                <div className="space-y-4">
-                  {variants.map((variant, variantIndex) => (
-                    <div key={variant.id} className="p-4 border rounded-lg bg-gray-50/50">
-                      <div className="flex justify-between items-center mb-2">
-                        <Input placeholder="Variant Name (e.g., Size, Color)" value={variant.name} onChange={(e) => handleVariantNameChange(variant.id, e.target.value)} className="font-semibold" />
-                        <Button type="button" variant="ghost" size="icon" onClick={() => removeVariant(variant.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
-                      </div>
-                      <div className="pl-4">
-                        <div className="flex gap-2 items-center">
-                          <Input placeholder="Add new option (e.g., S, M, Red)" value={newOptions[variant.id] || ''} onChange={(e) => setNewOptions({ ...newOptions, [variant.id]: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addVariantOption(variant.id); } }} />
-                          <Button type="button" size="icon" onClick={() => addVariantOption(variant.id)}><PlusCircle className="h-5 w-5" /></Button>
-                        </div>
-                        <div className="flex flex-wrap gap-2 mt-3">
-                          {variant.options.map((option, optionIndex) => (
-                            <div key={optionIndex} className="flex items-center gap-1 bg-gray-200 rounded-full px-3 py-1 text-sm">
-                              {option.value}
-                              <button type="button" onClick={() => removeVariantOption(variant.id, option.value)} className="ml-1 text-gray-600 hover:text-black"><X className="h-3 w-3"/></button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <Button type="button" variant="outline" onClick={addVariant} className="mt-4"><PlusCircle className="h-4 w-4 mr-2"/>Add Variant Type</Button>
-              </div>
-
-            <div className="flex justify-end gap-2 border-t pt-6">
-              <Link href="/admin/products" passHref>
-                <Button type="button" variant="outline">Cancel</Button>
-              </Link>
-              <Button type="submit" disabled={saving} className="bg-[#333333] text-white hover:bg-[#555555]">
-                {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                Save Changes
-              </Button>
+          {/* Product Details */}
+          <div className="space-y-4 p-6 border rounded-lg">
+            <h2 className="text-xl font-semibold">Product Details</h2>
+            <div>
+              <Label htmlFor="name">Name *</Label>
+              <Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
             </div>
+            <div>
+              <Label htmlFor="description">Description</Label>
+              <Textarea id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={3} />
+            </div>
+          </div>
+
+          {/* Product Gallery */}
+          <div className="p-6 border rounded-lg">
+            <h2 className="text-xl font-semibold mb-4">Product Gallery (Max 5)</h2>
+            <div className="space-y-4">
+              {imageAssets.map((asset, index) => (
+                <div key={index} className="flex gap-3 items-center border p-3 rounded-lg bg-white shadow-sm">
+                  <div className="w-20 h-20 relative bg-gray-100 rounded overflow-hidden flex-shrink-0 border">
+                    {asset.preview && asset.preview !== '/placeholder.png' ? (
+                      <Image src={asset.preview} alt={`Gallery ${index}`} fill className="object-cover" />
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-xs text-gray-400">No Image</div>
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <div>
+                      <Label className="text-xs">Image URL</Label>
+                      <Input
+                        value={asset.url}
+                        onChange={(e) => {
+                          const newAssets = [...imageAssets];
+                          newAssets[index] = { ...newAssets[index], url: e.target.value, preview: e.target.value };
+                          setImageAssets(newAssets);
+                        }}
+                        placeholder="https://..."
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500">Display Order: {index + 1}</div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Button type="button" variant="ghost" size="icon" disabled={index === 0} onClick={() => {
+                      const newAssets = [...imageAssets];
+                      [newAssets[index], newAssets[index - 1]] = [newAssets[index - 1], newAssets[index]];
+                      setImageAssets(newAssets);
+                    }}>
+                      <ArrowUp className="h-4 w-4" />
+                    </Button>
+                    <Button type="button" variant="ghost" size="icon" disabled={index === imageAssets.length - 1} onClick={() => {
+                      const newAssets = [...imageAssets];
+                      [newAssets[index], newAssets[index + 1]] = [newAssets[index + 1], newAssets[index]];
+                      setImageAssets(newAssets);
+                    }}>
+                      <ArrowDown className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Button type="button" variant="ghost" size="icon" onClick={() => {
+                    const newAssets = imageAssets.filter((_, i) => i !== index);
+                    setImageAssets(newAssets);
+                  }} className="text-gray-400 hover:text-red-500">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              {imageAssets.length < 5 && (
+                <Button type="button" variant="outline" className="w-full border-dashed" onClick={() => {
+                  setImageAssets([...imageAssets, { preview: '/placeholder.png', url: '' }]);
+                }}>
+                  <PlusCircle className="h-4 w-4 mr-2" /> Add Gallery Image
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Pricing & Stock */}
+          <div className="p-6 border rounded-lg">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <Label htmlFor="price_usd">Price (USD) *</Label>
+                <Input id="price_usd" type="number" step="0.01" value={formData.price_usd} onChange={(e) => setFormData({ ...formData, price_usd: e.target.value })} required />
+              </div>
+              <div>
+                <Label htmlFor="price_vnd">Price (VND) *</Label>
+                <Input id="price_vnd" type="number" step="1000" value={formData.price_vnd} onChange={(e) => setFormData({ ...formData, price_vnd: e.target.value })} required />
+              </div>
+              <div>
+                <Label htmlFor="category">Category *</Label>
+                <Select value={formData.category_id} onValueChange={(value) => setFormData({ ...formData, category_id: value })}><SelectTrigger id="category"><SelectValue placeholder="Select a category" /></SelectTrigger><SelectContent>{categories.map((category) => (<SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>))}</SelectContent></Select>
+              </div>
+              {/* Stock Input (Simple) */}
+              {variants.length === 0 && (
+                <div>
+                  <Label htmlFor="stock">Inventory</Label>
+                  <Input id="stock" type="number" value={formData.stock} onChange={(e) => setFormData({ ...formData, stock: e.target.value })} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Sales Off */}
+          <div className="p-6 border rounded-lg">
+            <h2 className="text-xl font-semibold mb-4">Sales Off</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="discount_type">Discount Type</Label>
+                <Select value={formData.discount_type} onValueChange={(value: 'percentage' | 'fixed') => setFormData({ ...formData, discount_type: value })}><SelectTrigger id="discount_type"><SelectValue placeholder="Select discount type" /></SelectTrigger><SelectContent><SelectItem value="percentage">Percentage (%)</SelectItem><SelectItem value="fixed">Fixed Amount (USD)</SelectItem></SelectContent></Select>
+              </div>
+              <div>
+                <Label htmlFor="discount_value">Discount Value</Label>
+                <Input id="discount_value" type="number" step="0.01" value={formData.discount_value} onChange={(e) => setFormData({ ...formData, discount_value: e.target.value })} placeholder={formData.discount_type === 'percentage' ? 'e.g., 10 for 10%' : 'e.g., 5 for $5 off'} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <Label htmlFor="promotion_start">Promotion Start</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    id="promotion_start"
+                    type="datetime-local"
+                    value={formData.promotion_start_date}
+                    onChange={(e) => setFormData({ ...formData, promotion_start_date: e.target.value })}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="Start Now"
+                    onClick={() => {
+                      const now = new Date();
+                      const localIso = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+                      setFormData({ ...formData, promotion_start_date: localIso })
+                    }}
+                  >
+                    <span className="text-xs">Now</span>
+                  </Button>
+                </div>
+                <span className="text-xs text-gray-500">Leave blank for immediate start</span>
+              </div>
+              <div>
+                <Label htmlFor="promotion_end">Promotion End</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    id="promotion_end"
+                    type="datetime-local"
+                    value={formData.promotion_end_date}
+                    onChange={(e) => setFormData({ ...formData, promotion_end_date: e.target.value })}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="No End Date"
+                    onClick={() => setFormData({ ...formData, promotion_end_date: '' })}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                <span className="text-xs text-gray-500">Leave blank for no end date</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Variants */}
+          <div className="p-6 border rounded-lg">
+            <h2 className="text-xl font-semibold mb-4">Product Variants</h2>
+            <div className="space-y-4">
+              {variants.map((variant, variantIndex) => (
+                <div key={variant.id} className="p-4 border rounded-lg bg-gray-50/50">
+                  <div className="flex justify-between items-center mb-2">
+                    <Input placeholder="Variant Name (e.g., Size, Color)" value={variant.name} onChange={(e) => handleVariantNameChange(variant.id, e.target.value)} className="font-semibold" />
+                    <Button type="button" variant="ghost" size="icon" onClick={() => removeVariant(variant.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                  </div>
+                  <div className="pl-4">
+                    <div className="flex gap-2 items-center">
+                      <Input placeholder="Add new option (e.g., S, M, Red)" value={newOptions[variant.id] || ''} onChange={(e) => setNewOptions({ ...newOptions, [variant.id]: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addVariantOption(variant.id); } }} />
+                      <Button type="button" size="icon" onClick={() => addVariantOption(variant.id)}><PlusCircle className="h-5 w-5" /></Button>
+                    </div>
+                    <div className="flex flex-col gap-2 mt-3">
+                      {variant.options.map((option, optionIndex) => (
+                        <div key={optionIndex} className="flex items-center gap-2 bg-white p-2 rounded border">
+                          <Input
+                            value={option.value}
+                            onChange={(e) => handleOptionChange(variant.id, optionIndex, 'value', e.target.value)}
+                            className="h-8 text-sm w-32"
+                            placeholder="Value"
+                          />
+                          <Input
+                            value={option.stock ?? 0}
+                            type="number"
+                            onChange={(e) => handleOptionChange(variant.id, optionIndex, 'stock', parseInt(e.target.value) || 0)}
+                            className="h-8 text-sm w-24"
+                            placeholder="Stock"
+                          />
+                          <Input
+                            value={option.image_url || ''}
+                            onChange={(e) => handleOptionChange(variant.id, optionIndex, 'image_url', e.target.value)}
+                            className="h-8 text-sm flex-1"
+                            placeholder="Image URL"
+                          />
+                          {option.image_url && (
+                            <div className="w-8 h-8 relative border rounded overflow-hidden flex-shrink-0 bg-gray-100">
+                              <Image src={option.image_url} alt="Variant" fill className="object-cover" />
+                            </div>
+                          )}
+                          <Button type="button" variant="ghost" size="icon" onClick={() => removeVariantOption(variant.id, option.value)} className="h-8 w-8 text-gray-500 hover:text-red-500">
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Button type="button" variant="outline" onClick={addVariant} className="mt-4"><PlusCircle className="h-4 w-4 mr-2" />Add Variant Type</Button>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t pt-6">
+            <Link href="/admin/products" passHref>
+              <Button type="button" variant="outline">Cancel</Button>
+            </Link>
+            <Button type="submit" disabled={saving} className="bg-[#333333] text-white hover:bg-[#555555]">
+              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Save Changes
+            </Button>
+          </div>
         </form>
       </div>
     </div>

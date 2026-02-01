@@ -2,9 +2,10 @@ export const dynamic = 'force-dynamic';
 
 // Using server components for data fetching
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
-import ProductCard from '@/components/ProductCard'
-import HeroCarousel from '@/components/HeroCarousel'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
+import ProductCard from '@/components/product/ProductCard'
+import HeroCarousel from '@/components/home/HeroCarousel'
+import ProductCarousel from '@/components/home/ProductCarousel'
 import { unstable_noStore as noStore } from 'next/cache';
 
 // #region --- Data Types ---
@@ -32,7 +33,8 @@ interface HomeSectionWithProducts extends HomeSection {
 // #region --- Data Fetching ---
 async function getPageData() {
   noStore(); // Ensure data is fetched on each request
-  
+  const supabase = await createServerSupabaseClient();
+
   // Fetch site settings and home sections in parallel
   const [settingsRes, sectionsRes] = await Promise.all([
     supabase.from('site_settings').select('key, value'),
@@ -71,8 +73,8 @@ async function getPageData() {
       heroBanners = []; // Fallback to empty array on parsing error
     }
   }
-  
-  // For each section, fetch the 4 latest products matching its category slug
+
+  // For each section, fetch the 50 latest products matching its category slug
   const sectionsWithProducts: HomeSectionWithProducts[] = await Promise.all(
     homeSections.map(async (section) => {
       let query = supabase
@@ -87,16 +89,23 @@ async function getPageData() {
           product_images (image_url, display_order)
         `)
         .order('created_at', { ascending: false })
-        .limit(4);
-      
+        .limit(50);
+
       // Filter by category unless slug is 'all'
       if (section.category_slug !== 'all') {
         const { data: category, error: catError } = await supabase.from('categories').select('id').eq('slug', section.category_slug).single();
+
         if (catError || !category) {
-            console.warn(`Category with slug "${section.category_slug}" not found.`);
-            return { ...section, products: [] };
+          console.warn(`Category with slug "${section.category_slug}" not found.`);
+          return { ...section, products: [] };
         }
-        query = query.eq('category_id', category.id);
+
+        // Fetch subcategories
+        const { data: subCats } = await supabase.from('categories').select('id').eq('parent_id', category.id);
+        const categoryIds = [category.id, ...(subCats?.map(c => c.id) || [])];
+
+        // Use 'in' filter for category_id
+        query = query.in('category_id', categoryIds);
       }
 
       const { data: productsData, error: productsError } = await query;
@@ -109,7 +118,8 @@ async function getPageData() {
       // Sort images client-side
       const products = productsData.map(p => ({
         ...p,
-        product_images: p.product_images.sort((a,b) => a.display_order - b.display_order)
+        // Safe access in case product_images is null
+        product_images: (p.product_images || []).sort((a, b) => a.display_order - b.display_order)
       }))
 
       return { ...section, products };
@@ -135,11 +145,8 @@ function HomepageSection({ section }: { section: HomeSectionWithProducts }) {
   return (
     <section id={section.category_slug} className="container mx-auto px-4 py-16 scroll-mt-16">
       <h2 className="text-3xl font-bold text-[#333333] mb-8 text-center">{section.title}</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {section.products.map((product) => (
-          <ProductCard key={product.id} product={product} />
-        ))}
-      </div>
+      {/* Replaced Grid with Carousel */}
+      <ProductCarousel products={section.products} />
     </section>
   );
 }
@@ -154,8 +161,8 @@ export default async function Home() {
     return (
       <div className="w-full min-h-screen flex items-center justify-center">
         <div className="text-center p-8 bg-red-50 rounded-lg">
-            <h2 className="text-2xl font-bold text-red-700">Failed to load page data</h2>
-            <p className="text-red-600 mt-2">{error.message}</p>
+          <h2 className="text-2xl font-bold text-red-700">Failed to load page data</h2>
+          <p className="text-red-600 mt-2">{error.message}</p>
         </div>
       </div>
     );
@@ -165,7 +172,7 @@ export default async function Home() {
 
   return (
     <main className="w-full">
-      <HeroCarousel banners={heroBanners} bannerText={bannerText} />
+      <HeroCarousel />
 
       <div id="sections">
         {sections.length > 0 ? (

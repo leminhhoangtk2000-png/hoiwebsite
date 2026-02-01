@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { revalidateLayout } from '@/app/actions'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
-import { Trash2, Plus, Edit, UploadCloud, X, Loader2 } from 'lucide-react'
+import { Trash2, Plus, Edit, UploadCloud, X, Loader2, ArrowUp, ArrowDown } from 'lucide-react'
 
 // #region --- Types ---
 interface SiteSetting {
@@ -73,7 +73,7 @@ function LogoUploader({ initialLogoPath, onUploadSuccess }: { initialLogoPath: s
       if (uploadError) throw uploadError;
 
       const { data: publicUrlData } = supabase.storage.from(LOGO_BUCKET_NAME).getPublicUrl(uploadData.path);
-      
+
       onUploadSuccess(publicUrlData.publicUrl);
 
       // If a logo already exists, remove the old one first.
@@ -106,36 +106,36 @@ function LogoUploader({ initialLogoPath, onUploadSuccess }: { initialLogoPath: s
 
   return (
     <div className="space-y-4">
-        <Label>Logo</Label>
-        <div className="flex items-center gap-6">
-            <div className="w-48 h-20 flex items-center justify-center border rounded-lg bg-gray-50 overflow-hidden">
-                {displayUrl ? (
-                    <Image src={displayUrl} alt="Current Logo" width={160} height={80} className="object-contain" />
-                ) : (
-                    <span className="text-sm text-gray-500">No Logo</span>
-                )}
-            </div>
-            <div className="space-y-2">
-                <Button onClick={triggerFileInput} disabled={uploading}>
-                    {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
-                    {uploading ? 'Uploading...' : 'Upload New Logo'}
-                </Button>
-                <p className="text-xs text-gray-500">Recommended size: 240x80px</p>
-                <Input 
-                    ref={fileInputRef}
-                    type="file"
-                    className="hidden"
-                    onChange={handleLogoUpload}
-                    accept="image/png, image/jpeg, image/svg+xml, image/webp"
-                    disabled={uploading}
-                />
-            </div>
+      <Label>Logo</Label>
+      <div className="flex items-center gap-6">
+        <div className="w-48 h-20 flex items-center justify-center border rounded-lg bg-gray-50 overflow-hidden">
+          {displayUrl ? (
+            <Image src={displayUrl} alt="Current Logo" width={160} height={80} className="object-contain" />
+          ) : (
+            <span className="text-sm text-gray-500">No Logo</span>
+          )}
         </div>
+        <div className="space-y-2">
+          <Button onClick={triggerFileInput} disabled={uploading}>
+            {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
+            {uploading ? 'Uploading...' : 'Upload New Logo'}
+          </Button>
+          <p className="text-xs text-gray-500">Recommended size: 240x80px</p>
+          <Input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleLogoUpload}
+            accept="image/png, image/jpeg, image/svg+xml, image/webp"
+            disabled={uploading}
+          />
+        </div>
+      </div>
     </div>
   );
 }
 // =================================================================
-// NEW, CORRECT CAROUSEL SLIDES MANAGER
+// CAROUSEL SLIDES MANAGER
 // =================================================================
 function CarouselSlidesManager() {
   const [slides, setSlides] = useState<CarouselSlide[]>([]);
@@ -180,7 +180,7 @@ function CarouselSlidesManager() {
       // 2. Delete row from database
       const { error: dbError } = await supabase.from('hero_carousel_slides').delete().eq('id', slide.id);
       if (dbError) throw dbError;
-      
+
       toast.success('Slide deleted successfully!');
       fetchSlides(); // Refresh list
     } catch (error: any) {
@@ -266,13 +266,12 @@ function SlideEditDialog({ dialogOpen, setDialogOpen, editingSlide, setEditingSl
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!formData.title) {
-        toast.error("Title is required.");
-        return;
-    }
+
+    // UPDATED: No longer require title
+    // but still require image for new slide
     if (!editingSlide && !imageFile) {
-        toast.error("An image is required for a new slide.");
-        return;
+      toast.error("An image is required for a new slide.");
+      return;
     }
     setIsSaving(true);
     try {
@@ -284,7 +283,7 @@ function SlideEditDialog({ dialogOpen, setDialogOpen, editingSlide, setEditingSl
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from(BUCKET_NAME)
           .upload(fileName, imageFile);
-        
+
         if (uploadError) throw uploadError;
         image_path = uploadData.path;
 
@@ -314,6 +313,7 @@ function SlideEditDialog({ dialogOpen, setDialogOpen, editingSlide, setEditingSl
       onSave(); // Trigger a refresh on the parent
       setDialogOpen(false);
     } catch (error: any) {
+      console.error(error);
       toast.error(error.message || "Failed to save the slide.");
     } finally {
       setIsSaving(false);
@@ -338,8 +338,8 @@ function SlideEditDialog({ dialogOpen, setDialogOpen, editingSlide, setEditingSl
     }}>
       <DialogTrigger asChild>
         <Button onClick={() => { setEditingSlide(null); setDialogOpen(true); }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Slide
+          <Plus className="h-4 w-4 mr-2" />
+          Add Slide
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
@@ -348,52 +348,53 @@ function SlideEditDialog({ dialogOpen, setDialogOpen, editingSlide, setEditingSl
         </DialogHeader>
         <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-x-6 gap-y-4">
           <div className="col-span-2 space-y-2">
-             <Label>Image</Label>
-             <div 
-               className="w-full h-48 border-2 border-dashed rounded-md flex items-center justify-center bg-gray-50 cursor-pointer"
-               onClick={() => fileInputRef.current?.click()}
-             >
-                {previewUrl ? (
-                  <Image src={previewUrl} alt="preview" width={300} height={150} className="object-contain h-full w-full" />
-                ) : (
-                  <div className="text-center text-gray-500">
-                    <UploadCloud className="mx-auto h-8 w-8" />
-                    <p>Click to upload image</p>
-                    <p className="text-xs">1920x800 recommended</p>
-                  </div>
-                )}
-             </div>
-             <Input 
-                id="image-upload" 
-                ref={fileInputRef}
-                type="file" 
-                className="hidden" 
-                onChange={handleImageChange}
-                accept="image/png, image/jpeg, image/webp"
-             />
+            <Label>Image</Label>
+            <div
+              className="w-full h-48 border-2 border-dashed rounded-md flex items-center justify-center bg-gray-50 cursor-pointer"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {previewUrl ? (
+                <Image src={previewUrl} alt="preview" width={300} height={150} className="object-contain h-full w-full" />
+              ) : (
+                <div className="text-center text-gray-500">
+                  <UploadCloud className="mx-auto h-8 w-8" />
+                  <p>Click to upload image</p>
+                  <p className="text-xs">1920x800 recommended</p>
+                </div>
+              )}
+            </div>
+            <Input
+              id="image-upload"
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={handleImageChange}
+              accept="image/png, image/jpeg, image/webp"
+            />
           </div>
           <div className="col-span-2">
-            <Label htmlFor="title">Title</Label>
-            <Input id="title" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
+            <Label htmlFor="title">Title (Optional)</Label>
+            {/* UPDATED: Removed required */}
+            <Input id="title" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} />
           </div>
           <div className="col-span-2">
             <Label htmlFor="subtitle">Subtitle (Optional)</Label>
-            <Input id="subtitle" value={formData.subtitle} onChange={e => setFormData({...formData, subtitle: e.target.value})} />
+            <Input id="subtitle" value={formData.subtitle} onChange={e => setFormData({ ...formData, subtitle: e.target.value })} />
           </div>
           <div>
             <Label htmlFor="cta_text">Button Text (Optional)</Label>
-            <Input id="cta_text" value={formData.cta_text} onChange={e => setFormData({...formData, cta_text: e.target.value})} />
+            <Input id="cta_text" value={formData.cta_text} onChange={e => setFormData({ ...formData, cta_text: e.target.value })} />
           </div>
           <div>
             <Label htmlFor="cta_link">Button Link (Optional)</Label>
-            <Input id="cta_link" value={formData.cta_link} placeholder="/products/some-product" onChange={e => setFormData({...formData, cta_link: e.target.value})} />
+            <Input id="cta_link" value={formData.cta_link} placeholder="/products/some-product" onChange={e => setFormData({ ...formData, cta_link: e.target.value })} />
           </div>
-           <div>
+          <div>
             <Label htmlFor="display_order">Display Order</Label>
-            <Input id="display_order" type="number" value={formData.display_order} onChange={e => setFormData({...formData, display_order: parseInt(e.target.value) || 0})} required />
+            <Input id="display_order" type="number" value={formData.display_order} onChange={e => setFormData({ ...formData, display_order: parseInt(e.target.value) || 0 })} required />
           </div>
           <div className="flex items-center gap-2 pt-6">
-            <input type="checkbox" id="is_active" checked={formData.is_active} onChange={e => setFormData({...formData, is_active: e.target.checked})} className="h-4 w-4 rounded"/>
+            <input type="checkbox" id="is_active" checked={formData.is_active} onChange={e => setFormData({ ...formData, is_active: e.target.checked })} className="h-4 w-4 rounded" />
             <Label htmlFor="is_active" className="cursor-pointer">Active</Label>
           </div>
           <div className="col-span-2 flex justify-end gap-2 mt-4">
@@ -410,8 +411,8 @@ function SlideEditDialog({ dialogOpen, setDialogOpen, editingSlide, setEditingSl
 }
 
 
-// ====== Home Sections Manager (Unchanged) ======
-function HomeSectionsManager({ categories }: { categories: Category[] }){
+// ====== Home Sections Manager ======
+function HomeSectionsManager({ categories }: { categories: Category[] }) {
   const [sections, setSections] = useState<HomeSection[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -436,15 +437,15 @@ function HomeSectionsManager({ categories }: { categories: Category[] }){
       setLoading(false)
     }
   }
-  
+
   const handleSaveSection = async (formData: Omit<HomeSection, 'id' | 'is_active'>, is_active: boolean) => {
     try {
       if (editingSection) {
-        const { error } = await supabase.from('home_sections').update({...formData, is_active}).eq('id', editingSection.id)
+        const { error } = await supabase.from('home_sections').update({ ...formData, is_active }).eq('id', editingSection.id)
         if (error) throw error
         toast.success('Section updated!')
       } else {
-        const { error } = await supabase.from('home_sections').insert({...formData, is_active})
+        const { error } = await supabase.from('home_sections').insert({ ...formData, is_active })
         if (error) throw error
         toast.success('Section created!')
       }
@@ -467,17 +468,49 @@ function HomeSectionsManager({ categories }: { categories: Category[] }){
     }
   }
 
+  // UPDATED: Added handleMoveSection
+  const handleMoveSection = async (index: number, direction: 'up' | 'down') => {
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === sections.length - 1) return;
+
+    const newSections = [...sections];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+
+    // Swap in local array
+    [newSections[index], newSections[targetIndex]] = [newSections[targetIndex], newSections[index]];
+
+    // Optimistic update
+    setSections(newSections);
+
+    try {
+      // Swap display_orders in DB
+      const currentSection = sections[index];
+      const targetSection = sections[targetIndex];
+
+      await Promise.all([
+        supabase.from('home_sections').update({ display_order: targetSection.display_order }).eq('id', currentSection.id),
+        supabase.from('home_sections').update({ display_order: currentSection.display_order }).eq('id', targetSection.id)
+      ]);
+
+      fetchSections();
+    } catch (error: any) {
+      toast.error("Failed to reorder sections.");
+      fetchSections(); // Revert
+    }
+  }
+
+
   const handleToggleActive = async (section: HomeSection) => {
     try {
       const { error } = await supabase.from('home_sections').update({ is_active: !section.is_active }).eq('id', section.id)
       if (error) throw error
       toast.success(`Section ${!section.is_active ? 'activated' : 'deactivated'}.`)
       fetchSections()
-    } catch(error: any) {
-       toast.error(error.message || 'Failed to toggle status.')
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to toggle status.')
     }
   }
-  
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -505,7 +538,7 @@ function HomeSectionsManager({ categories }: { categories: Category[] }){
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sections.length > 0 ? sections.map(section => (
+              {sections.length > 0 ? sections.map((section, index) => (
                 <TableRow key={section.id}>
                   <TableCell>{section.display_order}</TableCell>
                   <TableCell className="font-medium">{section.title}</TableCell>
@@ -521,12 +554,20 @@ function HomeSectionsManager({ categories }: { categories: Category[] }){
                     </Button>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" onClick={() => { setEditingSection(section); setDialogOpen(true); }}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="text-red-500" onClick={() => handleDeleteSection(section.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" disabled={index === 0} onClick={() => handleMoveSection(index, 'up')}>
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" disabled={index === sections.length - 1} onClick={() => handleMoveSection(index, 'down')}>
+                        <ArrowDown className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => { setEditingSection(section); setDialogOpen(true); }}>
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="text-red-500" onClick={() => handleDeleteSection(section.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               )) : (
@@ -540,7 +581,7 @@ function HomeSectionsManager({ categories }: { categories: Category[] }){
   )
 }
 
-function SectionDialog({ dialogOpen, setDialogOpen, editingSection, setEditingSection, categories, onSave}: any) {
+function SectionDialog({ dialogOpen, setDialogOpen, editingSection, setEditingSection, categories, onSave }: any) {
   const [formData, setFormData] = useState({
     title: editingSection?.title || '',
     category_slug: editingSection?.category_slug || '',
@@ -551,8 +592,8 @@ function SectionDialog({ dialogOpen, setDialogOpen, editingSection, setEditingSe
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!formData.title || !formData.category_slug) {
-        toast.error("Title and category are required.");
-        return;
+      toast.error("Title and category are required.");
+      return;
     }
     onSave(formData, is_active);
   }
@@ -564,8 +605,8 @@ function SectionDialog({ dialogOpen, setDialogOpen, editingSection, setEditingSe
     }}>
       <DialogTrigger asChild>
         <Button onClick={() => { setEditingSection(null); setDialogOpen(true); }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Section
+          <Plus className="h-4 w-4 mr-2" />
+          Add Section
         </Button>
       </DialogTrigger>
       <DialogContent>
@@ -575,14 +616,14 @@ function SectionDialog({ dialogOpen, setDialogOpen, editingSection, setEditingSe
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <Label htmlFor="title">Title</Label>
-            <Input id="title" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
+            <Input id="title" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} required />
           </div>
           <div>
             <Label htmlFor="category_slug">Category</Label>
-            <Select value={formData.category_slug} onValueChange={value => setFormData({...formData, category_slug: value})}>
+            <Select value={formData.category_slug} onValueChange={value => setFormData({ ...formData, category_slug: value })}>
               <SelectTrigger><SelectValue placeholder="Select a category" /></SelectTrigger>
               <SelectContent>
-                {categories.map(cat => (
+                {categories.map((cat: { id: string; slug: string; name: string }) => (
                   <SelectItem key={cat.id} value={cat.slug}>{cat.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -590,10 +631,10 @@ function SectionDialog({ dialogOpen, setDialogOpen, editingSection, setEditingSe
           </div>
           <div>
             <Label htmlFor="display_order">Display Order</Label>
-            <Input id="display_order" type="number" value={formData.display_order} onChange={e => setFormData({...formData, display_order: parseInt(e.target.value) || 0})} required />
+            <Input id="display_order" type="number" value={formData.display_order} onChange={e => setFormData({ ...formData, display_order: parseInt(e.target.value) || 0 })} required />
           </div>
           <div className="flex items-center gap-2">
-            <input type="checkbox" id="is_active" checked={is_active} onChange={e => setIsActive(e.target.checked)} className="rounded"/>
+            <input type="checkbox" id="is_active" checked={is_active} onChange={e => setIsActive(e.target.checked)} className="rounded" />
             <Label htmlFor="is_active" className="cursor-pointer">Active</Label>
           </div>
           <div className="flex justify-end gap-2">
@@ -607,89 +648,89 @@ function SectionDialog({ dialogOpen, setDialogOpen, editingSection, setEditingSe
 }
 
 function GeneralSettings({ settings, onUpdate }: { settings: Record<string, any>, onUpdate: () => void }) {
-    const [formData, setFormData] = useState(settings);
-    const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState(settings);
+  const [saving, setSaving] = useState(false);
 
-    useEffect(() => {
-        setFormData(settings);
-    }, [settings]);
+  useEffect(() => {
+    setFormData(settings);
+  }, [settings]);
 
-    const handleSave = async () => {
-        setSaving(true);
-        try {
-            const updates = Object.keys(formData).map(key => 
-                supabase.from('site_settings').update({ value: formData[key] }).eq('key', key)
-            );
-            
-            await Promise.all(updates);
-            
-            await revalidateLayout();
-            toast.success('General settings saved!');
-            onUpdate(); // Refresh data on the page
-        } catch (error: any) {
-            toast.error(error.message || "Failed to save general settings.");
-        } finally {
-            setSaving(false);
-        }
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const updates = Object.keys(formData).map(key =>
+        supabase.from('site_settings').update({ value: formData[key] }).eq('key', key)
+      );
+
+      await Promise.all(updates);
+
+      await revalidateLayout();
+      toast.success('General settings saved!');
+      onUpdate(); // Refresh data on the page
+    } catch (error: any) {
+      toast.error(error.message || "Failed to save general settings.");
+    } finally {
+      setSaving(false);
     }
+  }
 
-    // This function will be called by the LogoUploader on a successful upload
-    const handleLogoUpdate = (newLogoPath: string) => {
-        setFormData(prevData => ({ ...prevData, logo_path: newLogoPath }));
-    };
+  // This function will be called by the LogoUploader on a successful upload
+  const handleLogoUpdate = (newLogoPath: string) => {
+    setFormData(prevData => ({ ...prevData, logo_path: newLogoPath }));
+  };
 
-    return (
-        <Card>
-            <CardHeader><CardTitle>General Settings</CardTitle></CardHeader>
-            <CardContent className="space-y-8">
-                <div className="space-y-2">
-                    <Label htmlFor="site_title">Site Title</Label>
-                    <Input 
-                        id="site_title" 
-                        value={formData.site_title || ''} 
-                        onChange={e => setFormData({ ...formData, site_title: e.target.value })} 
-                        placeholder="e.g., UNIQLO Clone"
-                    />
-                </div>
-                
-                <LogoUploader 
-                    initialLogoPath={formData.logo_path}
-                    onUploadSuccess={handleLogoUpdate}
-                />
+  return (
+    <Card>
+      <CardHeader><CardTitle>General Settings</CardTitle></CardHeader>
+      <CardContent className="space-y-8">
+        <div className="space-y-2">
+          <Label htmlFor="site_title">Site Title</Label>
+          <Input
+            id="site_title"
+            value={formData.site_title || ''}
+            onChange={e => setFormData({ ...formData, site_title: e.target.value })}
+            placeholder="e.g., UNIQLO Clone"
+          />
+        </div>
 
-                <div className="space-y-2">
-                    <Label htmlFor="payment_qr_url">Payment QR Code URL</Label>
-                    <Input 
-                        id="payment_qr_url" 
-                        value={formData.payment_qr_url || ''} 
-                        onChange={e => setFormData({ ...formData, payment_qr_url: e.target.value })}
-                        placeholder="URL to your payment QR code image"
-                    />
-                     {formData.payment_qr_url && (
-                        <div className="pt-2">
-                            <Image src={formData.payment_qr_url} alt="Payment QR Code" width={150} height={150} className="rounded-md border"/>
-                        </div>
-                    )}
-                </div>
+        <LogoUploader
+          initialLogoPath={formData.logo_path}
+          onUploadSuccess={handleLogoUpdate}
+        />
 
-                <div className="space-y-2">
-                    <Label htmlFor="bank_info">Bank Information</Label>
-                    <Textarea 
-                        id="bank_info" 
-                        value={formData.bank_info || ''} 
-                        onChange={e => setFormData({ ...formData, bank_info: e.target.value })} 
-                        rows={4}
-                        placeholder="e.g., Bank Name: ABC Bank, Account: 123456789"
-                    />
-                </div>
-                
-                <Button onClick={handleSave} disabled={saving}>
-                    {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {saving ? 'Saving...' : 'Save General Settings'}
-                </Button>
-            </CardContent>
-        </Card>
-    );
+        <div className="space-y-2">
+          <Label htmlFor="payment_qr_url">Payment QR Code URL</Label>
+          <Input
+            id="payment_qr_url"
+            value={formData.payment_qr_url || ''}
+            onChange={e => setFormData({ ...formData, payment_qr_url: e.target.value })}
+            placeholder="URL to your payment QR code image"
+          />
+          {formData.payment_qr_url && (
+            <div className="pt-2">
+              <Image src={formData.payment_qr_url} alt="Payment QR Code" width={150} height={150} className="rounded-md border" />
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="bank_info">Bank Information</Label>
+          <Textarea
+            id="bank_info"
+            value={formData.bank_info || ''}
+            onChange={e => setFormData({ ...formData, bank_info: e.target.value })}
+            rows={4}
+            placeholder="e.g., Bank Name: ABC Bank, Account: 123456789"
+          />
+        </div>
+
+        <Button onClick={handleSave} disabled={saving}>
+          {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {saving ? 'Saving...' : 'Save General Settings'}
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
 // #endregion
 
@@ -704,18 +745,18 @@ export default function AdminSettingsPage() {
     try {
       const { data: settingsData, error: settingsError } = await supabase.from('site_settings').select('*');
       if (settingsError) throw settingsError;
-      
+
       const settingsMap = settingsData.reduce((acc, { key, value }) => {
         acc[key] = value;
         return acc;
       }, {} as Record<string, any>);
-      
+
       // Rename logo_url to logo_path for the client-side state
       if (settingsMap.logo_url) {
         settingsMap.logo_path = settingsMap.logo_url;
         delete settingsMap.logo_url;
       }
-      
+
       setSettings(settingsMap);
 
       const { data: categoriesData, error: categoriesError } = await supabase.from('categories').select('*');
@@ -743,15 +784,15 @@ export default function AdminSettingsPage() {
       <h1 className="text-3xl font-bold text-[#333333] mb-8">Site Management</h1>
       <div className="space-y-8">
         <GeneralSettings settings={{
-            site_title: settings.site_title,
-            logo_path: settings.logo_path,
-            payment_qr_url: settings.payment_qr_url,
-            bank_info: settings.bank_info,
+          site_title: settings.site_title,
+          logo_path: settings.logo_path,
+          payment_qr_url: settings.payment_qr_url,
+          bank_info: settings.bank_info,
         }} onUpdate={fetchAllData} />
 
         {/* REPLACED THE OLD MANAGER WITH THE NEW, CORRECT ONE */}
         <CarouselSlidesManager />
-        
+
         <HomeSectionsManager categories={categories} />
       </div>
     </div>
