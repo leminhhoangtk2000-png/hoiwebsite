@@ -1,7 +1,7 @@
 // src/app/admin/categories/page.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -129,7 +129,7 @@ export default function AdminCategoriesPage() {
   }
 
   // Recursive renderer for table rows
-  function renderRows(cats: Category[], depth = 0) {
+  function renderRows(cats: Category[], depth = 0): React.ReactNode[] {
     return cats.flatMap(cat => [
       <TableRow key={cat.id}>
         <TableCell className="font-medium">
