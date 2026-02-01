@@ -145,7 +145,9 @@ export default function HeroCarousel() {
               className="object-cover"
               sizes="100vw"
             />
-            <div className="absolute inset-0 bg-black/40" />
+            {(slide.title?.trim() || slide.subtitle?.trim() || (slide.cta_link && slide.cta_text)) && (
+              <div className="absolute inset-0 bg-black/40" />
+            )}
           </div>
         ))}
       </div>
