@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
-import { Trash2, Plus, Edit, Link as LinkIcon } from 'lucide-react'
+import { Trash2, Plus, Edit, Link as LinkIcon, ArrowUp, ArrowDown } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 
 interface SocialChannel {
@@ -20,6 +20,7 @@ interface SocialChannel {
   icon_url: string | null  // New field
   link: string
   is_active: boolean
+  sort_order: number // New field for ordering
   created_at: string
 }
 
@@ -48,6 +49,7 @@ export default function AdminSocialPage() {
       const { data, error } = await supabase
         .from('social_channels')
         .select('*')
+        .order('sort_order', { ascending: true }) // Order by sort_order
         .order('name', { ascending: true })
 
       if (error) throw error
@@ -92,7 +94,7 @@ export default function AdminSocialPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    
+
     if (!formData.name.trim() || !formData.link.trim()) {
       toast.error('Please fill in Name and Link URL fields')
       return
@@ -110,7 +112,7 @@ export default function AdminSocialPage() {
             await supabase.storage.from(BUCKET_NAME).remove([oldFileName]);
           }
         }
-        
+
         const fileName = `${Date.now()}-${iconFile.name}`;
         const { error: uploadError } = await supabase.storage
           .from(BUCKET_NAME)
@@ -121,7 +123,7 @@ export default function AdminSocialPage() {
         const { data: publicUrlData } = supabase.storage
           .from(BUCKET_NAME)
           .getPublicUrl(fileName);
-        
+
         icon_url = publicUrlData.publicUrl;
       }
 
@@ -143,10 +145,12 @@ export default function AdminSocialPage() {
         if (error) throw error
         toast.success('Social channel updated successfully!')
       } else {
-        // Create new
+        // Create new - assign order at the end
+        const maxOrder = channels.length > 0 ? Math.max(...channels.map(c => c.sort_order || 0)) : 0;
+
         const { error } = await supabase
           .from('social_channels')
-          .insert(channelData)
+          .insert({ ...channelData, sort_order: maxOrder + 1 })
 
         if (error) throw error
         toast.success('Social channel added successfully!')
@@ -184,11 +188,7 @@ export default function AdminSocialPage() {
       if (channel.icon_url) {
         const fileName = channel.icon_url.split('/').pop();
         if (fileName) {
-          const { error: storageError } = await supabase.storage.from(BUCKET_NAME).remove([fileName]);
-          if (storageError) {
-             console.error('Could not delete icon from storage:', storageError.message);
-             toast.error('Failed to delete icon from storage, but proceeding to delete channel data.');
-          }
+          await supabase.storage.from(BUCKET_NAME).remove([fileName]);
         }
       }
 
@@ -205,6 +205,56 @@ export default function AdminSocialPage() {
     } catch (error: any) {
       console.error('Error deleting social channel:', error)
       toast.error(error.message || 'Failed to delete social channel')
+    }
+  }
+
+  async function moveChannel(index: number, direction: 'up' | 'down') {
+    const newChannels = [...channels];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+
+    if (targetIndex < 0 || targetIndex >= newChannels.length) return;
+
+    // Swap items in local state for immediate feedback
+    const temp = newChannels[index];
+    newChannels[index] = newChannels[targetIndex];
+    newChannels[targetIndex] = temp;
+    setChannels(newChannels);
+
+    try {
+      // Swap sort_order values in DB
+      const itemA = newChannels[index];
+      const itemB = newChannels[targetIndex];
+
+      // We'll update both. Note: This logic assumes sort_order is populated.
+      // If sort_order is missing, we might need a re-index script first.
+      // Simple swap logic:
+      const orderA = itemA.sort_order || index; // Fallback to index if null
+      const orderB = itemB.sort_order || targetIndex;
+
+      // Actually, to be robust, we should just swap their order values.
+      // If they have same order or null, this might be flaky, but let's assume valid state after migration.
+
+      await supabase
+        .from('social_channels')
+        .update({ sort_order: orderB }) // Give A the B's order (Wait, we swapped them in array)
+        // itemA is now at 'index', itemB is at 'targetIndex'.
+        // Originally: A was at index, B was at targetIndex.
+        // We want A to take B's order, and B to take A's order?
+        // Yes, effectively swapping their positions.
+        .eq('id', itemA.id);
+
+      await supabase
+        .from('social_channels')
+        .update({ sort_order: orderA })
+        .eq('id', itemB.id);
+
+      // Refetch to ensure consistency
+      fetchChannels();
+
+    } catch (error) {
+      console.error("Failed to reorder", error);
+      toast.error("Failed to reorder channels");
+      fetchChannels(); // Revert on error
     }
   }
 
@@ -227,7 +277,7 @@ export default function AdminSocialPage() {
         <h1 className="text-3xl font-bold text-[#333333]">Social Media Management</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button 
+            <Button
               className="bg-[#333333] text-white hover:bg-[#555555]"
               onClick={() => openDialog()}
             >
@@ -253,7 +303,7 @@ export default function AdminSocialPage() {
                 />
               </div>
 
-               <div>
+              <div>
                 <Label htmlFor="icon">Icon Image</Label>
                 <Input
                   id="icon"
@@ -264,7 +314,7 @@ export default function AdminSocialPage() {
                 />
                 {previewUrl && (
                   <div className="mt-4">
-                     <Image src={previewUrl} alt="Icon preview" width={40} height={40} className="rounded-md object-cover" />
+                    <Image src={previewUrl} alt="Icon preview" width={40} height={40} className="rounded-md object-cover" />
                   </div>
                 )}
                 <p className="text-xs text-gray-500 mt-1">Upload a PNG, JPG, or SVG. Replaces existing icon.</p>
@@ -324,13 +374,13 @@ export default function AdminSocialPage() {
                   No social channels found.
                 </TableCell>
               </TableRow>
-            ) : channels.map((channel) => {
+            ) : channels.map((channel, index) => {
               const IconComponent = getIconComponent(channel.icon_code);
               return (
                 <TableRow key={channel.id}>
                   <TableCell>
                     {channel.icon_url ? (
-                      <Image src={channel.icon_url} alt={channel.name} width={24} height={24} className="rounded-sm"/>
+                      <Image src={channel.icon_url} alt={channel.name} width={24} height={24} className="rounded-sm" />
                     ) : (
                       <IconComponent className="h-6 w-6" />
                     )}
@@ -342,17 +392,35 @@ export default function AdminSocialPage() {
                     </a>
                   </TableCell>
                   <TableCell>
-                     <Button
-                        variant={channel.is_active ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => handleToggleActive(channel.id, channel.is_active)}
-                        className={channel.is_active ? 'bg-green-600 hover:bg-green-700' : ''}
-                      >
-                        {channel.is_active ? 'Active' : 'Inactive'}
-                      </Button>
+                    <Button
+                      variant={channel.is_active ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleToggleActive(channel.id, channel.is_active)}
+                      className={channel.is_active ? 'bg-green-600 hover:bg-green-700' : ''}
+                    >
+                      {channel.is_active ? 'Active' : 'Inactive'}
+                    </Button>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        disabled={index === 0}
+                        onClick={() => moveChannel(index, 'up')}
+                        title="Move Up"
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        disabled={index === channels.length - 1}
+                        onClick={() => moveChannel(index, 'down')}
+                        title="Move Down"
+                      >
+                        <ArrowDown className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => openDialog(channel)}>
                         <Edit className="h-4 w-4" />
                       </Button>

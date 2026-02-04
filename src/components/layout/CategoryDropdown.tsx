@@ -32,23 +32,19 @@ export default function CategoryDropdown({ categories, onCategoryClick }: Catego
     if (flattenedCategories.length === 0) return null;
 
     return (
-        // Grid Layout:
-        // - grid-rows-3: Exactly 3 items per column.
-        // - grid-flow-col: Fill columns first (downwards), then add new columns (rightwards).
-        // - w-max: Allow width to grow based on number of columns.
-        // - max-w-[90vw]: Prevent overflowing the screen width if too many columns.
-        <div className="p-6 bg-white shadow-xl rounded-b-lg border-t border-gray-100 animate-in fade-in slide-in-from-top-2 duration-200">
+        // Theme: Yellow BG (#FFB800), Red Text (#990000)
+        <div className="p-6 bg-[#FFB800] shadow-xl rounded-b-sm border-t border-[#990000]/20 animate-in fade-in slide-in-from-top-2 duration-200">
             <div className="grid grid-rows-3 grid-flow-col gap-x-12 gap-y-3 w-max max-w-[90vw] overflow-x-auto">
                 {flattenedCategories.map((cat) => (
                     <a
                         key={cat.id}
-                        href={`#${cat.slug}`}
-                        onClick={(e) => onCategoryClick(e, cat.slug)}
+                        href="#"
+                        onClick={(e) => onCategoryClick(e, cat.name)} // Pass Name instead of Slug for simpler filtering
                         className={`
               block text-sm transition-colors truncate
               ${!cat.parent_id
-                                ? 'font-bold text-gray-900 uppercase tracking-wide hover:text-black'
-                                : 'text-gray-600 pl-[10px] font-normal hover:text-black hover:underline'
+                                ? 'font-bold text-[#990000] uppercase tracking-wide hover:text-white'
+                                : 'text-[#990000] pl-[10px] font-normal hover:text-white hover:underline'
                             }
             `}
                         title={cat.name}

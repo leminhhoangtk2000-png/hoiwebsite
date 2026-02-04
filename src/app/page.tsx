@@ -3,9 +3,10 @@ export const dynamic = 'force-dynamic';
 // Using server components for data fetching
 import Link from 'next/link'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import ProductCard from '@/components/product/ProductCard'
-import HeroCarousel from '@/components/home/HeroCarousel'
-import ProductCarousel from '@/components/home/ProductCarousel'
+import Hero from '@/components/home/Hero'
+import CollectionGrid from '@/components/home/CollectionGrid'
+import StoryBlock from '@/components/home/StoryBlock'
+import SectionProductFeed from '@/components/home/SectionProductFeed'
 import { unstable_noStore as noStore } from 'next/cache';
 
 // #region --- Data Types ---
@@ -159,28 +160,9 @@ async function getPageData() {
   );
 
   return {
-    bannerText: settings.home_banner_text || 'LifeWear Collection',
     heroBanners: heroBanners,
     sections: sectionsWithProducts,
   };
-}
-// #endregion
-
-// #region --- Child Components ---
-
-// Product Section (Server Component)
-function HomepageSection({ section }: { section: HomeSectionWithProducts }) {
-  if (section.products.length === 0) {
-    return null; // Don't render empty sections
-  }
-
-  return (
-    <section id={section.category_slug} className="container mx-auto px-4 py-16 scroll-mt-16">
-      <h2 className="text-3xl font-bold text-[#333333] mb-8 text-center">{section.title}</h2>
-      {/* Replaced Grid with Carousel */}
-      <ProductCarousel products={section.products} />
-    </section>
-  );
 }
 // #endregion
 
@@ -200,16 +182,24 @@ export default async function Home() {
     );
   }
 
-  const { bannerText, heroBanners, sections } = data;
+  const { heroBanners, sections } = data;
 
   return (
-    <main className="w-full">
-      <HeroCarousel />
+    <main className="w-full bg-[#FFFDF5] min-h-screen">
+      <Hero banners={heroBanners} />
+
+      <CollectionGrid />
+
+      <StoryBlock />
 
       <div id="sections">
         {sections.length > 0 ? (
           sections.map((section) => (
-            <HomepageSection key={section.id} section={section} />
+            <SectionProductFeed
+              key={section.id}
+              title={section.title}
+              products={section.products}
+            />
           ))
         ) : (
           <div className="container mx-auto px-4 py-24 text-center">

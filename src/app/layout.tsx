@@ -105,6 +105,8 @@ export default async function RootLayout({
     }
   }
 
+  const { data: { user } } = await supabase.auth.getUser();
+
   return (
     <html lang="en">
       <GoogleAnalytics GA_MEASUREMENT_ID="G-XRES7RKJ18" />
@@ -112,7 +114,7 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col min-h-screen`}
         suppressHydrationWarning={true}
       >
-        <Header logoUrl={logoUrl} categories={categories} />
+        <Header logoUrl={logoUrl} categories={categories} user={user} />
         <main className="flex-1">
           {children}
         </main>

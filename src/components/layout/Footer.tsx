@@ -1,7 +1,6 @@
 export const dynamic = 'force-dynamic';
 
 import { createServerSupabaseClient } from '@/lib/supabase-server';
-import Image from 'next/image'; // Import Next.js Image component
 
 interface SocialChannel {
   id: string;
@@ -19,6 +18,7 @@ export default async function Footer() {
       .from('social_channels')
       .select('*') // Selects all columns, including icon_url
       .eq('is_active', true)
+      .order('sort_order', { ascending: true })
       .order('name', { ascending: true });
 
     if (error) throw error;
@@ -28,52 +28,47 @@ export default async function Footer() {
   }
 
   return (
-    <footer className="bg-white border-t py-12">
-      <div className="container mx-auto px-4">
-        <div className="flex flex-col items-center justify-center space-y-6">
-          <h3 className="text-sm font-semibold text-[#333333] uppercase tracking-wide">
-            Follow Us
-          </h3>
-          <div className="flex items-center gap-6">
+    <footer className="bg-[#FFB800] text-[#990000] px-6 md:px-12 pt-24 pb-12">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-24 gap-12">
+        <div className="w-full md:w-1/2">
+          <h2 className="text-[8.5vw] leading-[0.8] font-bold tracking-tighter uppercase whitespace-nowrap">
+            Hội Vintage
+          </h2>
+        </div>
+
+        <div className="flex flex-col gap-8 md:w-1/2 md:items-end text-left md:text-right">
+          <div className="flex flex-col gap-2">
+            <h4 className="text-xs font-bold tracking-widest uppercase text-[#990000]/70 mb-2">Follow us</h4>
             {socialChannels.length > 0 ? (
-              socialChannels.map((channel) => {
-                // For debugging as requested
-                console.log("DEBUG social channel item:", channel);
-
-                // Ensure icon_url exists and is a valid string before rendering
-                if (!channel.icon_url || typeof channel.icon_url !== 'string') {
-                  // Optionally render a fallback or nothing
-                  return null;
-                }
-
-                return (
-                  <a
-                    key={channel.id}
-                    href={channel.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#333333] hover:opacity-70 transition-opacity"
-                    aria-label={channel.name}
-                  >
-                    <Image
-                      src={channel.icon_url}
-                      alt={`${channel.name} icon`}
-                      width={24}
-                      height={24}
-                      className="h-6 w-6" // Maintain consistent size
-                      unoptimized // Add if icons are SVGs or from external non-standard domains
-                    />
-                  </a>
-                );
-              })
+              socialChannels.map((channel) => (
+                <a
+                  key={channel.id}
+                  href={channel.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xl md:text-2xl hover:text-white transition-colors"
+                >
+                  {channel.name}
+                </a>
+              ))
             ) : (
-              <p className="text-sm text-gray-500">No social channels available</p>
+              // Fallback if no DB data
+              <>
+                <a href="#" className="text-xl md:text-2xl hover:text-white transition-colors">Instagram</a>
+                <a href="#" className="text-xl md:text-2xl hover:text-white transition-colors">TikTok</a>
+              </>
             )}
           </div>
-          <p className="text-xs text-gray-500 mt-4">
-            © {new Date().getFullYear()} Your Company Name. All rights reserved.
-          </p>
         </div>
+      </div>
+
+      <div className="flex flex-col md:flex-row justify-between items-end border-t border-[#990000]/20 pt-8">
+        <p className="text-[10px] uppercase tracking-widest text-[#990000]/60">
+          © {new Date().getFullYear()} Hội Vintage. All Rights Reserved.
+        </p>
+        <p className="text-[10px] uppercase tracking-widest text-[#990000]/60 mt-4 md:mt-0">
+          Designed with Purpose
+        </p>
       </div>
     </footer>
   );

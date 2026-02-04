@@ -144,10 +144,14 @@ export default function CheckoutPage() {
       if (customerError) throw customerError
 
       // Step 2: Create order
+      // Get current user if logged in
+      const { data: { user } } = await supabase.auth.getUser()
+
       const { data: order, error: orderError } = await supabase
         .from('orders')
         .insert({
-          customer_id: customer.id,
+          user_id: user?.id || null, // Link to Auth User if logged in
+          customer_id: customer.id,   // Link to Shipping Info (Customers table)
           status: 'pending',
           total_amount: total,
           coupon_code: appliedCoupon,
