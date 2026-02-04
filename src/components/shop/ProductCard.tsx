@@ -230,7 +230,7 @@ function getColorValue(name: string): string {
         // New Additions
         'strawberry': '#FC5A8D', 'red wine': '#722F37', 'wine': '#722F37',
         'primrose yellow': '#EDFF21', 'mint green': '#98FF98', 'mint': '#98FF98',
-        'cow brown': '#8B4513', 'brown': '#8B4513',
+        'cow brown': '#8B4513',
         'dark brown': '#654321', 'light brown': '#C4A484'
     };
     return map[lower] || lower; // Fallback to name if it happens to be valid CSS (e.g. "red")
